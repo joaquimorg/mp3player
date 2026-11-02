@@ -1,0 +1,4 @@
+.pio/
+.superpowers/
+.vscode/
+tools/pc/*.exe
