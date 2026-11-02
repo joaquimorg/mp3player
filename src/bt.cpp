@@ -29,6 +29,8 @@ std::vector<Device> s_devices;
 String s_target;                      // name we want to connect to ("" = none)
 std::atomic<bool> s_started{false};
 std::atomic<bool> s_scanWanted{false};
+std::atomic<bool> s_connectPending{false};  // onSsid already dispatched a connect
+String s_savedName;                          // last value written to settings
 std::atomic<uint32_t> s_connects{0}, s_disconnects{0}, s_audioStarts{0};
 SemaphoreHandle_t s_parked = nullptr;
 
@@ -63,6 +65,9 @@ class WatchSource : public BluetoothA2DPSource {
   // Runs on the library task (BtAppT), serialised with its state machine.
   void connectAddr(const uint8_t* addr) {
     if (discovery_active) esp_bt_gap_cancel_discovery();
+    // One inquiry reports the same device many times: ignore repeats while a
+    // connect to that address is already in flight.
+    if (s_a2d_state == APP_AV_STATE_CONNECTING && memcmp(addr, peer_bd_addr, ESP_BD_ADDR_LEN) == 0) return;
     if (is_connected()) {
       if (memcmp(addr, peer_bd_addr, ESP_BD_ADDR_LEN) == 0) return;
       // Switch device: drop the current link; the heartbeat in UNCONNECTED
@@ -175,16 +180,29 @@ bool onSsid(const char* name, esp_bd_addr_t addr, int rssi) {
     }
     match = s_target.length() > 0 && s_target == name;
   }
-  if (match && !s_a2dp.is_connected()) {
+  if (match && !s_a2dp.is_connected() && !s_connectPending.exchange(true)) {
     s_scanWanted.store(false);
     s_a2dp.dispatch(workConnect, addr, ESP_BD_ADDR_LEN);
   }
   return false;  // never let the library hijack its state machine
 }
 
+// Runs on the library task (BtAppT, 4 KB stack).
 void onConnState(esp_a2d_connection_state_t state, void*) {
+  s_connectPending.store(false);
   if (state == ESP_A2D_CONNECTION_STATE_CONNECTED) {
     s_connects.fetch_add(1);
+    // Persist the device only once a link really exists, so a mistyped or
+    // absent name never becomes the saved device.
+    String name;
+    {
+      Lock l;
+      name = s_target;
+    }
+    if (name.length() && name != s_savedName) {
+      settings::setLastBtDevice(name);
+      s_savedName = name;
+    }
   } else if (state == ESP_A2D_CONNECTION_STATE_DISCONNECTED && s_connects.load() > s_disconnects.load()) {
     s_disconnects.fetch_add(1);
   }
@@ -203,6 +221,7 @@ void begin() {
   if (!s_lock) s_lock = xSemaphoreCreateMutex();
 
   String last = settings::lastBtDevice();
+  s_savedName = last;
   {
     Lock l;
     s_target = last;
@@ -248,7 +267,7 @@ std::vector<String> devices() {
 
 void connectTo(const String& name) {
   if (!s_started.load() || name.length() == 0) return;
-  settings::setLastBtDevice(name);
+  s_connectPending.store(false);
   bool known = false;
   esp_bd_addr_t addr;
   {

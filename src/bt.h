@@ -16,7 +16,7 @@ void startScan();                   // keeps scanning until stopScan()/connectTo
 void stopScan();
 bool scanning();
 std::vector<String> devices();      // audio-capable names seen since begin()
-void connectTo(const String& name); // saves it as settings::lastBtDevice()
+void connectTo(const String& name); // saved as settings::lastBtDevice() once CONNECTED
 bool connected();
 String connectedName();             // name of the current/target peer
 void end();                         // full teardown (controller off) so Wi-Fi can start

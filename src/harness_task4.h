@@ -112,7 +112,7 @@ static void help() {
   Serial.println(
       "cmds: slots | up <slot> <size> | upf <slot> <size> | rm <slot> | play <n> | pause | resume | next | prev"
       " | stop | vol <0-100> | loop one|all | sink on|off | btbegin | btend | scan | stopscan | devs"
-      " | conn <name> | demo <name> | wifi | pend | pbegin | heap");
+      " | conn <name> | forget | demo <name> | wifi | pend | pbegin | heap");
 }
 
 static void command(String c) {
@@ -170,6 +170,10 @@ static void command(String c) {
     Serial.printf("[bt] %u devices:\n", (unsigned)d.size());
     for (auto& n : d) Serial.printf("[bt]   '%s'\n", n.c_str());
   } else if (cmd == "conn") bt::connectTo(arg);
+  else if (cmd == "forget") {
+    settings::setLastBtDevice("");
+    Serial.println("[bt] saved device cleared (takes effect at next btbegin)");
+  }
   else if (cmd == "demo") {
     s_demoName = arg;
     if (!bt::stats().started) bt::begin();
@@ -233,7 +237,8 @@ inline void loop() {
   bool c = bt::connected();
   if (c != s_lastConn) {
     s_lastConn = c;
-    Serial.printf("[bt] %s '%s'\n", c ? "CONNECTED" : "DISCONNECTED", bt::connectedName().c_str());
+    Serial.printf("[bt] %s '%s' (saved device '%s')\n", c ? "CONNECTED" : "DISCONNECTED",
+                  bt::connectedName().c_str(), settings::lastBtDevice().c_str());
   }
   if (millis() - s_lastStat >= 10000) {
     s_lastStat += 10000;
