@@ -10,6 +10,9 @@
 #ifdef TASK4_HARNESS
 #include "harness_task4.h"
 #endif
+#ifdef TASK5_HARNESS
+#include "harness_task5.h"
+#endif
 
 TTGOClass *watch = nullptr;
 
@@ -38,11 +41,16 @@ void setup() {
 #ifdef TASK4_HARNESS
   harness::setup();
 #endif
+#ifdef TASK5_HARNESS
+  harness5::setup();
+#endif
 }
 
 void loop() {
 #ifdef TASK4_HARNESS
   harness::loop();
+#elif defined(TASK5_HARNESS)
+  harness5::loop();
 #else
   delay(1000);
 #endif
