@@ -59,10 +59,9 @@ void saveNames() {
   size_t w = f.print(j);
   f.close();
   if (w != j.length()) { LittleFS.remove(kNamesTmp); return; }
-  if (!LittleFS.rename(kNamesTmp, kNamesPath)) {
-    LittleFS.remove(kNamesPath);
-    LittleFS.rename(kNamesTmp, kNamesPath);
-  }
+  // No remove-then-rename fallback: rename atomically replaces the old file,
+  // and a failed rename must never delete the existing names.json.
+  if (!LittleFS.rename(kNamesTmp, kNamesPath)) LittleFS.remove(kNamesTmp);
 }
 
 int hexVal(char c) {
@@ -168,7 +167,7 @@ bool remove(int slot) {
   if (!p) return false;
   bool ok = !LittleFS.exists(p) || LittleFS.remove(p);
   loadNames();
-  if (gNames[slot - 1].length()) {
+  if (ok && gNames[slot - 1].length()) {
     gNames[slot - 1] = "";
     saveNames();
   }
@@ -236,11 +235,9 @@ bool SlotWriter::commit() {
     return false;
   }
   const char* dst = slotlogic::slotPath(slot_);
-  bool ok = LittleFS.rename(tmpPath_, dst);  // LittleFS rename replaces atomically
-  if (!ok) {
-    LittleFS.remove(dst);  // fallback: remove old, then rename
-    ok = LittleFS.rename(tmpPath_, dst);
-  }
+  // No remove-then-rename fallback: LittleFS rename atomically replaces an
+  // existing destination, and a failed rename must never delete the old slot.
+  bool ok = LittleFS.rename(tmpPath_, dst);
   if (!ok) {
     abort();
     return false;

@@ -4,6 +4,8 @@
 #include <unity.h>
 #include "storage.h"
 #include "settings.h"
+#include <nvs_flash.h>
+#include <Preferences.h>
 
 using namespace storage;
 
@@ -137,6 +139,24 @@ void test_hasFileAll() {
   TEST_ASSERT_TRUE(freeBytes() > 1000000);
 }
 
+void test_second_commit_false() {
+  SlotWriter w(1);
+  TEST_ASSERT_TRUE(w.write(buf, 10));
+  TEST_ASSERT_TRUE(w.commit());
+  TEST_ASSERT_FALSE(w.commit());
+  TEST_ASSERT_EQUAL_UINT32(10, slotSize(1));
+}
+
+void test_default_volume_on_clean_nvs() {
+  Preferences p;
+  p.begin("mp3", false);
+  p.clear();
+  p.end();
+  TEST_ASSERT_EQUAL_UINT8(50, settings::volume());
+  TEST_ASSERT_TRUE(settings::loopMode() == slotlogic::LoopMode::RepeatOne);
+  TEST_ASSERT_EQUAL_STRING("", settings::wifiSsid().c_str());
+}
+
 void test_settings_roundtrip() {
   settings::setVolume(77);
   TEST_ASSERT_EQUAL_UINT8(77, settings::volume());
@@ -167,6 +187,8 @@ void setup() {
   RUN_TEST(test_name_roundtrip_utf8_quotes_persisted);
   RUN_TEST(test_name_cap_48_no_split_utf8);
   RUN_TEST(test_hasFileAll);
+  RUN_TEST(test_second_commit_false);
+  RUN_TEST(test_default_volume_on_clean_nvs);
   RUN_TEST(test_settings_roundtrip);
   UNITY_END();
 }
