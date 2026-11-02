@@ -336,9 +336,17 @@ void decodeTask(void*) {
   vTaskDelete(nullptr);
 }
 
-void* allocPreferInternal(size_t bytes) {
-  void* p = heap_caps_malloc(bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-  if (!p) p = heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+// The ring goes to PSRAM: internal RAM is scarce once Bluetooth is up (~46 KB
+// free). It is only touched from tasks (decode task, A2DP data callback), never
+// from an ISR, so PSRAM is fine. Falls back to internal RAM.
+void* allocRing(size_t bytes) {
+  void* p = heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (p) {
+    log_i("player: ring buffer %u B in PSRAM", (unsigned)bytes);
+    return p;
+  }
+  p = heap_caps_malloc(bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  if (p) log_w("player: PSRAM allocation failed, ring buffer %u B in internal RAM", (unsigned)bytes);
   return p;
 }
 
@@ -356,7 +364,7 @@ void begin() {
   s_state.store(State::Idle);
   s_slot.store(0);
 
-  s_ringBuf = (uint32_t*)allocPreferInternal(kRingFrames * sizeof(uint32_t));
+  s_ringBuf = (uint32_t*)allocRing(kRingFrames * sizeof(uint32_t));
   d.helix = MP3InitDecoder();
   d.inBuf = (uint8_t*)malloc(kInBufBytes);
   d.pcm = (int16_t*)malloc(kPcmShorts * sizeof(int16_t));
@@ -390,12 +398,23 @@ void begin() {
 
 void end() {
   if (s_task) {
-    post(CmdType::Exit);
-    if (xSemaphoreTake(s_exitDone, pdMS_TO_TICKS(2000)) != pdTRUE) {
-      // Should not happen: the task polls its queue at least every 20 ms.
-      log_e("player: decode task did not exit, deleting it");
-      vTaskDelete(s_task);
-      freeDecoderBuffers();
+    // The task polls its queue at least every 20 ms, so it normally exits in
+    // well under 100 ms. Retry the post (queue could be full) for up to 5 s.
+    bool exited = false;
+    for (int i = 0; i < 10 && !exited; ++i) {
+      post(CmdType::Exit);
+      exited = xSemaphoreTake(s_exitDone, pdMS_TO_TICKS(500)) == pdTRUE;
+    }
+    if (!exited) {
+      // Deliberate choice: leak rather than crash. Deleting the task from here
+      // could kill it inside LittleFS/heap code (holding locks), and freeing
+      // buffers it may still use would corrupt memory. Leave the task, its
+      // buffers, the ring and the queue alone; the player stays unusable
+      // (begin() is a no-op while s_task is set) until a reboot.
+      log_e("player: decode task did not exit within 5 s; leaving it (leak, no free)");
+      s_ringReady.store(false);
+      s_state.store(State::Idle);
+      return;
     }
     s_task = nullptr;
   }

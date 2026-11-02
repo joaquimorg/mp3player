@@ -31,6 +31,7 @@ std::atomic<bool> s_started{false};
 std::atomic<bool> s_scanWanted{false};
 std::atomic<bool> s_connectPending{false};  // onSsid already dispatched a connect
 String s_savedName;                          // last value written to settings
+String s_connectedName;                      // name of the live peer ("" if none)
 std::atomic<uint32_t> s_connects{0}, s_disconnects{0}, s_audioStarts{0};
 SemaphoreHandle_t s_parked = nullptr;
 
@@ -75,12 +76,12 @@ class WatchSource : public BluetoothA2DPSource {
       esp_bd_addr_t old;
       memcpy(old, peer_bd_addr, ESP_BD_ADDR_LEN);
       memcpy(peer_bd_addr, addr, ESP_BD_ADDR_LEN);
-      set_last_connection(peer_bd_addr);
       esp_a2d_source_disconnect(old);
       return;
     }
+    // The address is NOT persisted here: only onConnState(CONNECTED) saves
+    // address + name together, so a failed attempt never changes them.
     memcpy(peer_bd_addr, addr, ESP_BD_ADDR_LEN);
-    set_last_connection(peer_bd_addr);
     s_a2d_state = APP_AV_STATE_CONNECTING;
     s_connecting_heatbeat_count = 0;
     connect_to(peer_bd_addr);
@@ -98,6 +99,10 @@ class WatchSource : public BluetoothA2DPSource {
   }
 
   bool hasAddress() { return has_last_connection(); }
+  void peer(uint8_t* out) { memcpy(out, peer_bd_addr, ESP_BD_ADDR_LEN); }
+  bool isSavedAddress(const uint8_t* a) { return memcmp(a, last_connection, ESP_BD_ADDR_LEN) == 0; }
+  // Writes the NVS address (library namespace "connected_bda"); no-op if equal.
+  void saveAddress(uint8_t* a) { set_last_connection(a); }
 
   // Full teardown. The library's end() is not usable for a source in 1.8.5:
   // it clears the address before disconnecting, calls the *sink* disconnect,
@@ -125,12 +130,26 @@ void WatchSource::teardown() {
   }
   if (discovery_active) esp_bt_gap_cancel_discovery();
 
-  if (connection_state != ESP_A2D_CONNECTION_STATE_DISCONNECTED) {
-    esp_a2d_source_disconnect(peer_bd_addr);
-    for (int i = 0; i < 30 && connection_state != ESP_A2D_CONNECTION_STATE_DISCONNECTED; ++i)
-      vTaskDelay(pdMS_TO_TICKS(100));
-    if (connection_state != ESP_A2D_CONNECTION_STATE_DISCONNECTED)
-      log_w("bt: disconnect timed out, tearing down anyway");
+  // Deinit with a connect attempt still in flight (paging an absent speaker)
+  // crashes: the late A2DP event is delivered to freed state in btc_av.c
+  // (LoadProhibited in btc_a2dp_cb_handler, reproduced on the watch). So wait
+  // for the link to be fully DISCONNECTED first. The heartbeat timer is
+  // already gone, so no new attempt starts; a page attempt ends after ~5.1 s.
+  vTaskDelay(pdMS_TO_TICKS(300));  // a connect queued just before the timer died
+  auto busy = [this] {
+    return connection_state != ESP_A2D_CONNECTION_STATE_DISCONNECTED ||
+           s_a2d_state == APP_AV_STATE_CONNECTING;
+  };
+  if (busy()) {
+    uint32_t t0 = millis();
+    if (connection_state == ESP_A2D_CONNECTION_STATE_CONNECTED) esp_a2d_source_disconnect(peer_bd_addr);
+    for (int i = 0; i < 80 && busy(); ++i) vTaskDelay(pdMS_TO_TICKS(100));
+    if (busy())
+      log_e("bt: link still busy (conn %d, sm %d) after 8 s, tearing down anyway", connection_state,
+            s_a2d_state);
+    else
+      log_i("bt: link idle after %lu ms", millis() - t0);
+    vTaskDelay(pdMS_TO_TICKS(200));  // let BTC deliver the final events
   }
   s_a2d_state = APP_AV_STATE_IDLE;
   s_media_state = 0;
@@ -182,7 +201,7 @@ bool onSsid(const char* name, esp_bd_addr_t addr, int rssi) {
   }
   if (match && !s_a2dp.is_connected() && !s_connectPending.exchange(true)) {
     s_scanWanted.store(false);
-    s_a2dp.dispatch(workConnect, addr, ESP_BD_ADDR_LEN);
+    if (!s_a2dp.dispatch(workConnect, addr, ESP_BD_ADDR_LEN)) s_connectPending.store(false);
   }
   return false;  // never let the library hijack its state machine
 }
@@ -192,19 +211,30 @@ void onConnState(esp_a2d_connection_state_t state, void*) {
   s_connectPending.store(false);
   if (state == ESP_A2D_CONNECTION_STATE_CONNECTED) {
     s_connects.fetch_add(1);
-    // Persist the device only once a link really exists, so a mistyped or
-    // absent name never becomes the saved device.
+    // Persist address + name together, and only once a link really exists, so
+    // a mistyped/absent/unreachable device never replaces the saved one.
+    uint8_t addr[ESP_BD_ADDR_LEN];
+    s_a2dp.peer(addr);
     String name;
     {
       Lock l;
-      name = s_target;
+      for (auto& d : s_devices)
+        if (memcmp(d.addr, addr, ESP_BD_ADDR_LEN) == 0) name = d.name;
+      if (!name.length())  // boot auto-reconnect: no scan, the saved device
+        name = s_a2dp.isSavedAddress(addr) ? s_savedName : s_target;
+      s_connectedName = name;
     }
+    s_a2dp.saveAddress(addr);
     if (name.length() && name != s_savedName) {
       settings::setLastBtDevice(name);
       s_savedName = name;
     }
-  } else if (state == ESP_A2D_CONNECTION_STATE_DISCONNECTED && s_connects.load() > s_disconnects.load()) {
-    s_disconnects.fetch_add(1);
+  } else if (state == ESP_A2D_CONNECTION_STATE_DISCONNECTED) {
+    {
+      Lock l;
+      s_connectedName = "";
+    }
+    if (s_connects.load() > s_disconnects.load()) s_disconnects.fetch_add(1);
   }
 }
 
@@ -216,15 +246,30 @@ int32_t dataCallback(Frame* frames, int32_t count) { return player::pullFrames(f
 
 }  // namespace
 
+#ifdef TASK4_HARNESS
+void debugAddDevice(const String& name, const uint8_t addr[6]) {
+  if (!s_lock) return;
+  Lock l;
+  Device d;
+  d.name = name;
+  memcpy(d.addr, addr, ESP_BD_ADDR_LEN);
+  d.rssi = 0;
+  s_devices.push_back(d);
+}
+#endif
+
 void begin() {
   if (s_started.load()) return;
   if (!s_lock) s_lock = xSemaphoreCreateMutex();
 
   String last = settings::lastBtDevice();
   s_savedName = last;
+  s_connectPending.store(false);
   {
     Lock l;
     s_target = last;
+    s_connectedName = "";
+    s_devices.clear();
   }
   s_a2dp.set_local_name("T-Watch MP3");
   s_a2dp.set_task_core(0);          // library default is core 1 (decode core)
@@ -283,7 +328,7 @@ void connectTo(const String& name) {
   }
   if (known) {
     s_scanWanted.store(false);
-    s_a2dp.dispatch(workConnect, addr, ESP_BD_ADDR_LEN);
+    if (!s_a2dp.dispatch(workConnect, addr, ESP_BD_ADDR_LEN)) log_w("bt: connect request dropped");
   } else {
     // onSsid() connects when the name shows up.
     startScan();
@@ -295,13 +340,19 @@ bool connected() { return s_started.load() && s_a2dp.is_connected(); }
 String connectedName() {
   if (!s_lock) return String();
   Lock l;
-  return s_target;
+  return s_connectedName.length() ? s_connectedName : s_target;
 }
 
 void end() {
   if (!s_started.load()) return;
   s_a2dp.teardown();
   s_started.store(false);
+  s_connectPending.store(false);
+  {
+    Lock l;
+    s_devices.clear();
+    s_connectedName = "";
+  }
   log_i("bt: stopped, controller status %d", esp_bt_controller_get_status());
 }
 

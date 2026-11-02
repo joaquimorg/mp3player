@@ -18,7 +18,7 @@ bool scanning();
 std::vector<String> devices();      // audio-capable names seen since begin()
 void connectTo(const String& name); // saved as settings::lastBtDevice() once CONNECTED
 bool connected();
-String connectedName();             // name of the current/target peer
+String connectedName();             // live peer's name if connected, else the target name
 void end();                         // full teardown (controller off) so Wi-Fi can start
 
 struct Stats {
@@ -28,5 +28,10 @@ struct Stats {
   bool started;
 };
 Stats stats();
+
+#ifdef TASK4_HARNESS
+// Test hook: inject a (possibly non-existent) device into devices().
+void debugAddDevice(const String& name, const uint8_t addr[6]);
+#endif
 
 }  // namespace bt

@@ -10,6 +10,7 @@
 #include <WiFi.h>
 #include <esp_bt.h>
 #include <esp_heap_caps.h>
+#include <nvs.h>
 #include "bt.h"
 #include "player.h"
 #include "settings.h"
@@ -108,11 +109,40 @@ static void wifiTest() {
   heapLine("wifi off");
 }
 
+// Prints what would be used after a reboot: settings name + library NVS address.
+static void savedBt() {
+  uint8_t a[6] = {0};
+  size_t n = sizeof(a);
+  bool have = false;
+  nvs_handle_t h;
+  if (nvs_open("connected_bda", NVS_READONLY, &h) == ESP_OK) {
+    have = nvs_get_blob(h, "src_bda", a, &n) == ESP_OK;
+    nvs_close(h);
+  }
+  Serial.printf("[bt] saved name '%s', saved address %s %02x:%02x:%02x:%02x:%02x:%02x\n",
+                settings::lastBtDevice().c_str(), have ? "present" : "absent", a[0], a[1], a[2], a[3], a[4], a[5]);
+}
+
+// Test-only: pretend device "SeedSpeaker" @02:00:00:00:00:02 was saved
+// ("seed"), or clear the saved name + address ("unseed"; zero address = none).
+static void seedBt(bool on) {
+  uint8_t a[6] = {0};
+  if (on) a[0] = 0x02, a[5] = 0x02;
+  nvs_handle_t h;
+  if (nvs_open("connected_bda", NVS_READWRITE, &h) == ESP_OK) {
+    nvs_set_blob(h, "src_bda", a, 6);
+    nvs_commit(h);
+    nvs_close(h);
+  }
+  settings::setLastBtDevice(on ? "SeedSpeaker" : "");
+  savedBt();
+}
+
 static void help() {
   Serial.println(
       "cmds: slots | up <slot> <size> | upf <slot> <size> | rm <slot> | play <n> | pause | resume | next | prev"
       " | stop | vol <0-100> | loop one|all | sink on|off | btbegin | btend | scan | stopscan | devs"
-      " | conn <name> | forget | demo <name> | wifi | pend | pbegin | heap");
+      " | conn <name> | fakeconn | saved | seed | unseed | forget | demo <name> | wifi | pend | pbegin | heap");
 }
 
 static void command(String c) {
@@ -170,7 +200,16 @@ static void command(String c) {
     Serial.printf("[bt] %u devices:\n", (unsigned)d.size());
     for (auto& n : d) Serial.printf("[bt]   '%s'\n", n.c_str());
   } else if (cmd == "conn") bt::connectTo(arg);
-  else if (cmd == "forget") {
+  else if (cmd == "saved") savedBt();
+  else if (cmd == "seed") seedBt(true);
+  else if (cmd == "unseed") seedBt(false);
+  else if (cmd == "fakeconn") {
+    // Connect to a device that does not exist (locally administered address):
+    // must fail without changing the saved name/address.
+    static const uint8_t fake[6] = {0x02, 0x00, 0x00, 0x00, 0x00, 0x01};
+    bt::debugAddDevice("FakeSpeaker", fake);
+    bt::connectTo("FakeSpeaker");
+  } else if (cmd == "forget") {
     settings::setLastBtDevice("");
     Serial.println("[bt] saved device cleared (takes effect at next btbegin)");
   }
