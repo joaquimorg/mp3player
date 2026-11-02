@@ -22,6 +22,11 @@ void test_sanitize_cap_no_split() {
   for (int i = 0; i < 30; i++) s2 += "ã";  // cutting at 48 would split a sequence
   TEST_ASSERT_EQUAL_UINT32(47, sanitizeFileName(s2).size());
 }
+void test_sanitize_trailing_space_after_cut() {
+  std::string s(47, 'a');
+  s += " bcd";  // the 48-byte cut lands after the space: it must not be left behind
+  TEST_ASSERT_EQUAL_UINT32(47, sanitizeFileName(s).size());
+}
 void test_sanitize_empty() {
   TEST_ASSERT_EQUAL_STRING("", sanitizeFileName("  .mp3").c_str());
   TEST_ASSERT_EQUAL_STRING("", sanitizeFileName("").c_str());
@@ -58,7 +63,7 @@ static void runAll() {
   UNITY_BEGIN();
   RUN_TEST(test_sanitize_basic); RUN_TEST(test_sanitize_ext_case); RUN_TEST(test_sanitize_path);
   RUN_TEST(test_sanitize_ctrl_and_tags); RUN_TEST(test_sanitize_utf8_kept); RUN_TEST(test_sanitize_latin1_fallback);
-  RUN_TEST(test_sanitize_cap_no_split); RUN_TEST(test_sanitize_empty); RUN_TEST(test_json_escape);
+  RUN_TEST(test_sanitize_cap_no_split); RUN_TEST(test_sanitize_empty); RUN_TEST(test_sanitize_trailing_space_after_cut); RUN_TEST(test_json_escape);
   RUN_TEST(test_json_error); RUN_TEST(test_slots_json); RUN_TEST(test_estimate); RUN_TEST(test_messages);
   RUN_TEST(test_slot_number);
   UNITY_END();

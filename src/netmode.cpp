@@ -33,6 +33,7 @@ struct Upload {
   std::unique_ptr<storage::SlotWriter> writer;
   int slot = 0;
   bool active = false;     // START seen for field "file"
+  bool dupFile = false;    // a second "file" part: ignored, answered with an error
   bool failed = false;     // rejected/aborted: remaining body is drained
   bool responded = false;  // an error response has already been sent (or nobody is left to get one)
   int errCode = 0;         // pending error answer, sent by the POST handler once the body is drained
@@ -78,13 +79,16 @@ int slotFromUri(const String& uri) {
 void handleUpload() {
   HTTPUpload& up = s_server->upload();
   if (up.status == UPLOAD_FILE_START) {
-    resetUpload();
     if (up.name != "file") return;  // ignore other file fields
+    if (s_up.active) {              // second "file" part: keep the first outcome
+      s_up.dupFile = true;
+      return;
+    }
     s_up.active = true;
     s_up.slot = slotFromUri(s_server->uri());
     s_up.contentLength = s_server->clientContentLength();
-    // Detect a vanished peer (Wi-Fi dropped without FIN) in ~25 s instead of never.
-    int on = 1, idle = 8, intvl = 5, cnt = 3;
+    // Detect a vanished peer (Wi-Fi dropped without FIN) in ~5 s instead of never.
+    int on = 1, idle = 2, intvl = 1, cnt = 3;
     WiFiClient c = s_server->client();
     c.setSocketOption(SOL_SOCKET, SO_KEEPALIVE, &on, sizeof on);
     c.setSocketOption(IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof idle);
@@ -92,18 +96,22 @@ void handleUpload() {
     c.setSocketOption(IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof cnt);
     Serial.printf("[net] upload start slot %d name '%s' content-length %ld heap %u\n", s_up.slot,
                   up.filename.c_str(), s_up.contentLength, (unsigned)ESP.getFreeHeap());
-    if (slotlogic::slotPath(s_up.slot) == nullptr) {
-      failUpload(400, netlogic::uploadErrorMessage(slotlogic::UploadCheck::BadSlot, false));
-    } else if (s_up.contentLength <= 0) {
-      failUpload(400, "Pedido sem tamanho (Content-Length).");
-    } else if (s_up.contentLength > kMaxDrainBytes) {
+    if (s_up.contentLength > kMaxDrainBytes) {  // checked first: whatever else is wrong, never drain this
       failUpload(400, netlogic::uploadErrorMessage(slotlogic::UploadCheck::TooBig, false));
       sendError(400, s_up.errMsg.c_str());
       s_up.responded = true;
-      s_server->client().stop();  // not worth reading megabytes just to discard them
+      // Not worth reading megabytes just to discard them. client() returns a copy of
+      // the handle, so stop() on it would not close anything: shut the socket down so
+      // the parser's next read fails and the request is dropped at once.
+      int fd = c.fd();
+      if (fd >= 0) lwip_shutdown(fd, SHUT_RDWR);
+    } else if (slotlogic::slotPath(s_up.slot) == nullptr) {
+      failUpload(400, netlogic::uploadErrorMessage(slotlogic::UploadCheck::BadSlot, false));
+    } else if (s_up.contentLength <= 0) {
+      failUpload(400, "Pedido sem tamanho (Content-Length).");
     }
   } else if (up.status == UPLOAD_FILE_WRITE) {
-    if (!s_up.active || s_up.failed || up.currentSize == 0) return;
+    if (!s_up.active || s_up.dupFile || s_up.failed || up.currentSize == 0) return;
     if (!s_up.headChecked) {
       // First chunk: validate with the real first 4 bytes BEFORE touching flash.
       s_up.headChecked = true;
@@ -127,7 +135,7 @@ void handleUpload() {
     }
     s_up.written += up.currentSize;
   } else if (up.status == UPLOAD_FILE_END) {
-    if (!s_up.active || s_up.failed) return;
+    if (!s_up.active || s_up.dupFile || s_up.failed) return;
     if (!s_up.headChecked) {  // no data at all: empty file
       failUpload(400, netlogic::uploadErrorMessage(slotlogic::UploadCheck::NotMp3, false));
       return;
@@ -145,15 +153,18 @@ void handleUpload() {
   } else if (up.status == UPLOAD_FILE_ABORTED) {
     Serial.printf("[net] upload slot %d ABORTED by client after %u bytes; old slot kept\n", s_up.slot,
                   (unsigned)s_up.written);
-    s_up.writer.reset();  // abort + remove tmp
-    s_up.failed = true;
-    s_up.responded = true;  // nobody left to answer
+    resetUpload();  // abort + remove tmp, forget everything: nobody is left to answer
   }
 }
 
 void handlePostSlot() {
   if (s_up.responded) {  // already answered from the upload callback
     resetUpload();
+    return;
+  }
+  if (s_up.dupFile) {
+    resetUpload();
+    sendError(400, "Só é permitido um ficheiro por pedido.");
     return;
   }
   if (s_up.failed) {
@@ -212,7 +223,7 @@ void handleWifiSave() {
     return;
   }
   settings::setWifi(ssid, pass);
-  Serial.printf("[net] wifi credentials saved for SSID '%s'; rebooting\n", ssid.c_str());
+  Serial.printf("[net] wifi credentials saved; rebooting\n");
   s_server->send_P(200, "text/html; charset=utf-8", kSetupSavedPage);
   s_rebootAt = millis() + 1500;
 }
@@ -267,7 +278,7 @@ void begin() {
   WiFi.begin(ssid.c_str(), settings::wifiPass().c_str());
   s_t0 = millis();
   s_state = State::Connecting;
-  Serial.printf("[net] connecting to '%s' (timeout %u s)\n", ssid.c_str(), (unsigned)(kConnectTimeoutMs / 1000));
+  Serial.printf("[net] connecting to saved network (timeout %u s)\n", (unsigned)(kConnectTimeoutMs / 1000));
 }
 
 void loop() {
@@ -285,7 +296,10 @@ void loop() {
       break;
     case State::Sta:
     case State::Ap:
-      if (s_server) s_server->handleClient();
+      if (s_server) {
+        s_server->handleClient();
+        resetUpload();  // a request is fully handled (or dropped) here: never carry state over
+      }
       if (s_rebootAt && (int32_t)(millis() - s_rebootAt) >= 0) ESP.restart();
       break;
     case State::Off:

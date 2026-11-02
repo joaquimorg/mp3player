@@ -65,6 +65,7 @@ std::string sanitizeFileName(const std::string& in) {
     size_t n = kMaxNameBytes;
     while (n > 0 && ((uint8_t)out[n] & 0xC0) == 0x80) n--;
     out.resize(n);
+    while (!out.empty() && out.back() == ' ') out.pop_back();
   }
   return out;
 }
