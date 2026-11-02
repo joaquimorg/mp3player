@@ -7,9 +7,16 @@
 
 #ifndef UNIT_TEST
 
+#ifdef TASK4_HARNESS
+#include "harness_task4.h"
+#endif
+
 TTGOClass *watch = nullptr;
 
 void setup() {
+#ifdef TASK4_HARNESS
+  Serial.setRxBufferSize(4096);
+#endif
   Serial.begin(115200);
   delay(300);
 
@@ -28,9 +35,16 @@ void setup() {
     Serial.printf("LittleFS total bytes: %u\n", (unsigned)LittleFS.totalBytes());
     Serial.printf("LittleFS used bytes: %u\n", (unsigned)LittleFS.usedBytes());
   }
+#ifdef TASK4_HARNESS
+  harness::setup();
+#endif
 }
 
 void loop() {
+#ifdef TASK4_HARNESS
+  harness::loop();
+#else
   delay(1000);
+#endif
 }
 #endif  // UNIT_TEST
