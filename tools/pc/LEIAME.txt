@@ -1,0 +1,7 @@
+YOUTUBE PARA O RELOGIO T-WATCH (ferramenta para Windows 10/11, sem instalar nada)
+1. Uma vez so: faz duplo clique em obter-ferramentas.bat (descarrega yt-dlp.exe de github.com/yt-dlp/yt-dlp e ffmpeg.exe de www.gyan.dev para esta pasta). Se o YouTube deixar de funcionar: obter-ferramentas.bat atualizar
+2. No relogio, toca em "Programar": o ecra mostra o endereco IP (o PC e o relogio tem de estar na mesma rede Wi-Fi).
+3. Faz duplo clique em youtube-para-relogio.bat, cola o link do YouTube (ou o caminho de um ficheiro mp3/m4a/wav), escolhe o IP e o slot (1 a 4).
+4. Aguarda: o envio de uma musica demora 1 a 2 minutos. O MP3 fica a 44,1 kHz, 112 kbps (maximo 3 MB, cerca de 3,7 minutos; se for maior tenta 64 kbps mono, cerca de 6,5 minutos).
+5. Se o slot ja tiver musica e nao houver espaco, a ferramenta oferece apagar o slot; ou manualmente: curl -X DELETE http://IP/api/slot/N
+6. No relogio, toca em "Reproducao" para ouvir. Uso por linha de comandos: youtube-para-relogio.bat "link-ou-ficheiro" slot ip   (o ultimo IP fica em ultimo-ip.txt)
