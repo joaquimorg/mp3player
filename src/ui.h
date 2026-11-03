@@ -27,4 +27,8 @@ struct Host {
 void begin(TTGOClass* watch, const Host& host);
 void loop();
 
+#ifdef UI_DEBUG
+void debugCommand(const char* line);  // debug console line (UI_DEBUG builds only)
+#endif
+
 }  // namespace ui

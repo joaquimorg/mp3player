@@ -1,3 +1,4 @@
+#include "log.h"
 #include "storage.h"
 #include <LittleFS.h>
 #include "slot_logic.h"
@@ -196,12 +197,12 @@ void setSlotName(int slot, const String& name) {
   // Full filesystem: do not leave a stale name for this slot (in RAM or in
   // names.json). Fall back to the default "Faixa N" and make the stored file agree:
   // dropping names.json frees its blocks, then the remaining names are rewritten.
-  Serial.printf("[storage] names.json write failed (FS full?): slot %d falls back to 'Faixa %d'\n", slot, slot);
+  DBG.printf("[storage] names.json write failed (FS full?): slot %d falls back to 'Faixa %d'\n", slot, slot);
   gNames[slot - 1] = "";
   if (!saveNames()) {
     LittleFS.remove(kNamesPath);
     if (!saveNames()) {
-      Serial.println("[storage] names.json could not be rewritten; names are not persisted");
+      DBG.println("[storage] names.json could not be rewritten; names are not persisted");
       LittleFS.remove(kNamesPath);
     }
   }

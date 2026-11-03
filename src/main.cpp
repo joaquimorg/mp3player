@@ -3,13 +3,17 @@
 #include <LittleFS.h>
 #include <atomic>
 #include <esp_heap_caps.h>
+#include <esp_log.h>
 #include <esp_system.h>
+#include "log.h"
 #include "bt.h"
 #include "config.h"
 #include "netmode.h"
 #include "player.h"
+#include "seriallink.h"
 #include "settings.h"
 #include "storage.h"
+#include "transfer.h"
 #include "ui.h"
 #include "ui_logic.h"
 
@@ -57,7 +61,7 @@ std::atomic<uint32_t> s_startAt{0};    // millis() the system task began it (0: 
 uint32_t s_switches = 0;
 
 void heapLine(const char* tag) {
-  Serial.printf("[heap] %s: free %u (internal %u, min internal %u, largest %u, psram %u)\n", tag,
+  DBG.printf("[heap] %s: free %u (internal %u, min internal %u, largest %u, psram %u)\n", tag,
                 (unsigned)ESP.getFreeHeap(), (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
                 (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
@@ -98,7 +102,7 @@ void enterProgram() {
 #ifdef UI_DEBUG
   if (g_debugStallSwitch) {
     g_debugStallSwitch = false;
-    Serial.println("[mode] debug: stalling this switch for 40 s");
+    DBG.println("[mode] debug: stalling this switch for 40 s");
     vTaskDelay(pdMS_TO_TICKS(40000));
   }
 #endif
@@ -119,12 +123,12 @@ void systemTask(void*) {
       uint32_t t0 = millis();
       s_startAt = nonZero(t0);
       const char* name = want == ui::Mode::Play ? "Reproducao" : "Programacao";
-      Serial.printf("[mode] switch #%u -> %s\n", (unsigned)++s_switches, name);
+      DBG.printf("[mode] switch #%u -> %s\n", (unsigned)++s_switches, name);
       heapLine("before switch");
       if (want == ui::Mode::Play) enterPlay();
       else enterProgram();
       s_mode = want;
-      Serial.printf("[mode] now %s (switch took %u ms)\n", name, (unsigned)(millis() - t0));
+      DBG.printf("[mode] now %s (switch took %u ms)\n", name, (unsigned)(millis() - t0));
       heapLine("after switch");
       s_requestAt = 0;
       s_startAt = 0;
@@ -151,6 +155,19 @@ void hostRequest(ui::Mode m) {
   s_busy = true;
   xQueueSend(s_cmds, &m, portMAX_DELAY);
 }
+// Serial MODO request. Same path as the UI (system task, busy flag), refused while a switch is
+// pending (s_busy is claimed with a compare-exchange), a web upload or a transfer is running.
+bool serialRequestMode(bool program) {
+  if (transfer::active() || netmode::uploading()) return false;
+  bool expected = false;
+  if (!s_busy.compare_exchange_strong(expected, true)) return false;
+  s_startAt = 0;
+  s_requestAt = nonZero(millis());
+  ui::Mode m = program ? ui::Mode::Program : ui::Mode::Play;
+  xQueueSend(s_cmds, &m, portMAX_DELAY);
+  return true;
+}
+const char* serialModeName() { return s_mode.load() == ui::Mode::Program ? "PROGRAMACAO" : "REPRODUCAO"; }
 String hostIp() {
   xSemaphoreTake(s_ipLock, portMAX_DELAY);
   String ip = s_ip;
@@ -165,20 +182,26 @@ bool hostUploading() { return s_mode.load() == ui::Mode::Program && !s_busy.load
 }  // namespace
 
 void setup() {
+  Serial.setRxBufferSize(2048);  // before begin(): the serial task polls every 5 ms
   Serial.begin(115200);
+#ifndef UI_DEBUG
+  // Serial belongs to the PC protocol: silence library logs (A2DP etc. log through log_printf/ets_printf).
+  Serial.setDebugOutput(false);
+  esp_log_level_set("*", ESP_LOG_NONE);
+#endif
   delay(100);
 
   watch = TTGOClass::getWatch();
   watch->begin();
   watch->tft->fillScreen(TFT_BLACK);
 
-  if (!storage::begin()) Serial.println("LittleFS mount FAILED");
+  if (!storage::begin()) DBG.println("LittleFS mount FAILED");
   else
-    Serial.printf("LittleFS used %u of %u bytes\n", (unsigned)LittleFS.usedBytes(), (unsigned)LittleFS.totalBytes());
+    DBG.printf("LittleFS used %u of %u bytes\n", (unsigned)LittleFS.usedBytes(), (unsigned)LittleFS.totalBytes());
 
   esp_reset_reason_t why = esp_reset_reason();
   bool program = uilogic::bootIntoProgram(settings::programFlag(), why == ESP_RST_SW);
-  Serial.printf("[mode] boot: reset reason %d, program flag %d -> %s\n", (int)why, settings::programFlag(),
+  DBG.printf("[mode] boot: reset reason %d, program flag %d -> %s\n", (int)why, settings::programFlag(),
                 program ? "Programacao" : "Reproducao");
   heapLine("boot");
 
@@ -195,6 +218,7 @@ void setup() {
 
   ui::Host host{hostMode, hostBusy, hostRequest, hostIp, hostIpVersion, hostUploading};
   ui::begin(watch, host);
+  seriallink::begin({serialRequestMode, serialModeName, hostBusy, hostIp});
 }
 
 // Runs in the UI task: the system task may be the one that is stuck.
@@ -203,7 +227,7 @@ void checkSwitchDeadline() {
   uint32_t now = millis(), start = s_startAt.load(), req = s_requestAt.load();
   bool late = start ? now - start > kSwitchDeadlineMs : (req && now - req > kStartDeadlineMs);
   if (!late) return;
-  Serial.printf("[mode] ERROR: mode switch %s for %u s; restarting into Reproducao\n",
+  DBG.printf("[mode] ERROR: mode switch %s for %u s; restarting into Reproducao\n",
                 start ? "not finished" : "not started", (unsigned)((now - (start ? start : req)) / 1000));
   settings::setProgramFlag(false);
   delay(200);
