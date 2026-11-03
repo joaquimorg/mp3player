@@ -9,6 +9,14 @@ public enum Transport { Wifi, Usb }
 // What to do with a freshly encoded MP3 given the free space on the watch.
 public enum EncodePlan { Keep, Retry64kMono, DoesNotFit, TooLarge }
 
+public class SlotInfo
+{
+    public int N;
+    public long Size;
+    public string Name = "";
+    public bool Empty { get { return Size == 0; } }
+}
+
 public class WatchStatus
 {
     public string Version = "";
@@ -178,6 +186,42 @@ public static class AppLogic
         if (u.Scheme != Uri.UriSchemeHttp && u.Scheme != Uri.UriSchemeHttps) return null;
         if (string.IsNullOrEmpty(u.Host) || u.Host.IndexOf('.') < 0) return null;
         return s;
+    }
+
+    // Parses "OK LISTA <free> <size>:<name hex> x4" (the USB slot list). Null when malformed.
+    public static SlotInfo[] ParseLista(string line, out long freeBytes)
+    {
+        freeBytes = 0;
+        if (line == null) return null;
+        string[] t = line.Trim().Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        if (t.Length != 7 || t[0] != "OK" || t[1] != "LISTA") return null;
+        long free;
+        if (!long.TryParse(t[2], out free)) return null;
+        SlotInfo[] r = new SlotInfo[4];
+        for (int i = 0; i < 4; i++)
+        {
+            string f = t[3 + i];
+            int c = f.IndexOf(':');
+            if (c < 1) return null;
+            long size;
+            if (!long.TryParse(f.Substring(0, c), out size)) return null;
+            string hex = f.Substring(c + 1);
+            if (hex.Length % 2 != 0) return null;
+            byte[] b = new byte[hex.Length / 2];
+            for (int k = 0; k < b.Length; k++)
+            {
+                int v;
+                if (!int.TryParse(hex.Substring(2 * k, 2), System.Globalization.NumberStyles.HexNumber, null, out v)) return null;
+                b[k] = (byte)v;
+            }
+            SlotInfo s = new SlotInfo();
+            s.N = i + 1;
+            s.Size = size;
+            s.Name = Encoding.UTF8.GetString(b);
+            r[i] = s;
+        }
+        freeBytes = free;
+        return r;
     }
 
     // Parses "OK TWATCH <ver> modo=<M> wifi=<ssid, may contain spaces> ip=<ip|-> livre=<n>".

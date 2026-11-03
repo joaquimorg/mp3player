@@ -112,6 +112,14 @@ bool parseLine(const char* line, size_t len, Parsed& out) {
   if (eq(line, len, "TWATCH?")) { out.cmd = Cmd::Hello; return true; }
   if (eq(line, len, "CANCELAR")) { out.cmd = Cmd::Cancel; return true; }
   if (eq(line, len, "LISTA")) { out.cmd = Cmd::List; return true; }
+  if (eq(line, len, "APAGAR") || starts(line, len, "APAGAR ")) {
+    if (len == 8 && line[6] == ' ' && line[7] >= '1' && line[7] <= '4') {
+      out.cmd = Cmd::Delete;
+      out.slot = line[7] - '0';
+      return true;
+    }
+    return fail(out, "argumentos");
+  }
 
   if (eq(line, len, "WIFI?") || starts(line, len, "WIFI? ")) {
     if (len < 6) return fail(out, "argumentos");
@@ -220,6 +228,41 @@ BlockReceiver::Result BlockReceiver::feed(const uint8_t* b, size_t n, size_t& co
     return received_ >= total_ ? Result::Done : Result::Ok;
   }
   return Result::NeedMore;
+}
+
+}  // namespace serproto
+
+namespace serproto {
+
+size_t formatList(char* out, size_t cap, uint32_t freeBytes, const uint32_t sizes[4], const uint8_t* const names[4],
+                  const size_t lens[4]) {
+  if (cap == 0) return 0;
+  size_t n = 0;
+  bool ok = true;
+  auto put = [&](char c) {
+    if (n + 1 < cap) out[n++] = c;
+    else ok = false;
+  };
+  auto putNum = [&](uint32_t v) {
+    char t[11];
+    int k = 0;
+    do { t[k++] = (char)('0' + v % 10); v /= 10; } while (v);
+    while (k) put(t[--k]);
+  };
+  static const char* kHex = "0123456789ABCDEF";
+  for (const char* s = "OK LISTA "; *s; ++s) put(*s);
+  putNum(freeBytes);
+  for (int i = 0; i < 4; ++i) {
+    put(' ');
+    putNum(sizes[i]);
+    put(':');
+    for (size_t j = 0; j < lens[i]; ++j) {
+      put(kHex[names[i][j] >> 4]);
+      put(kHex[names[i][j] & 15]);
+    }
+  }
+  out[ok ? n : 0] = 0;
+  return ok ? n : 0;
 }
 
 }  // namespace serproto

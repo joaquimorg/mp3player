@@ -112,6 +112,11 @@ public partial class MainForm
 
     async void RelogioRefresh()
     {
+        await RelogioRefreshTask();
+    }
+
+    async Task RelogioRefreshTask()
+    {
         relRefresh.Enabled = false;
         relMode.Enabled = false;
         relSendWifi.Enabled = false;
@@ -120,7 +125,7 @@ public partial class MainForm
         string preferred = AppConfig.LastPort;
         string port = null;
         WatchStatus st = null;
-        await Task.Run(delegate
+        await UsbRun(delegate
         {
             st = SerialLink.FindWatch(preferred, delegate(string m) { BeginInvoke((Action)delegate { RelLog(m); }); }, out port);
         });
@@ -156,7 +161,7 @@ public partial class MainForm
         RelLog(toProgram ? "A pedir o modo Programação (pode demorar até 45 s)..." : "A pedir o modo Reprodução...");
         string reply = null;
         WatchStatus st = null;
-        await Task.Run(delegate
+        await UsbRun(delegate
         {
             string err;
             using (SerialLink l = SerialLink.TryOpen(port, 115200, out err))
@@ -195,7 +200,7 @@ public partial class MainForm
         relSendWifi.Enabled = false;
         RelLog("A enviar o Wi-Fi \"" + ssid + "\" ***...");
         string reply = null;
-        await Task.Run(delegate
+        await UsbRun(delegate
         {
             string err;
             using (SerialLink l = SerialLink.TryOpen(port, 115200, out err))

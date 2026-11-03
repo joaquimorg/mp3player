@@ -171,6 +171,19 @@ public class SerialLink : IDisposable
         return Command(program ? "MODO PROG" : "MODO PLAY", 3000);
     }
 
+    public SlotInfo[] ListSlots(out long freeBytes)
+    {
+        freeBytes = 0;
+        Resync();
+        return AppLogic.ParseLista(Command("LISTA", 2500), out freeBytes);
+    }
+
+    public string DeleteSlot(int n)
+    {
+        Resync();
+        return Command("APAGAR " + n, 4000);
+    }
+
     // Polls TWATCH? until `done` is satisfied or the time runs out.
     public WatchStatus WaitStatus(Func<WatchStatus, bool> done, int totalMs)
     {

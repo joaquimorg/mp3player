@@ -30,6 +30,15 @@ public static class HwTest
         using (SerialLink l = SerialLink.TryOpen(port, 115200, out err))
         {
             if (l == null) { Console.WriteLine(err); return 2; }
+            if (a[0] == "list")
+            {
+                long fr; SlotInfo[] sl = l.ListSlots(out fr);
+                if (sl == null) { Console.WriteLine("LISTA falhou"); return 1; }
+                Console.WriteLine("livre=" + fr);
+                foreach (SlotInfo s in sl) Console.WriteLine("  " + s.N + ": " + s.Size + " [" + s.Name + "]");
+                return 0;
+            }
+            if (a[0] == "del") { Console.WriteLine("APAGAR -> " + l.DeleteSlot(int.Parse(a[1]))); return 0; }
             if (a[0] == "wificheck") { Console.WriteLine("WIFI? -> " + l.CheckWifi(a[1], a[2])); return 0; }
             if (a[0] == "mode")
             {

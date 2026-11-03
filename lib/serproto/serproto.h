@@ -10,7 +10,7 @@ constexpr size_t kMaxLine = 200;     // longer lines -> err "tamanho"
 constexpr size_t kBlockSize = 4096;  // max data bytes per block
 constexpr size_t kMaxName = 48;      // decoded name bytes
 
-enum class Cmd { Unknown, Hello, Wifi, WifiCheck, ModeProg, ModePlay, Baud, Put, Cancel, List };
+enum class Cmd { Unknown, Hello, Wifi, WifiCheck, ModeProg, ModePlay, Baud, Put, Cancel, List, Delete };
 
 struct Parsed {
   Cmd cmd;
@@ -36,6 +36,11 @@ uint32_t crc32Final(uint32_t crc);
 // Upper/lower-case hex, even length. false on bad digit, odd length or overflow of cap.
 // Empty string -> n = 0, true.
 bool hexDecode(const char* hex, uint8_t* out, size_t cap, size_t& n);
+
+// "OK LISTA <free> <size>:<name hex> x4" for the PC app (an empty slot is "0:"). names[i] may be null when
+// lens[i] == 0. Returns the string length, or 0 (and out[0] = 0) when it does not fit in cap.
+size_t formatList(char* out, size_t cap, uint32_t freeBytes, const uint32_t sizes[4], const uint8_t* const names[4],
+                  const size_t lens[4]);
 
 // Assembles blocks `[seq][data][crc16 hi,lo]` (seq = block index mod 256, starting at 0; crc16 CCITT over
 // seq+data) from a byte stream. Expected data length = min(4096, remaining). Decided from the first byte of a

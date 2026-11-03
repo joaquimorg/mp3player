@@ -94,7 +94,7 @@ Put s_put;
 
 void reply(const char* text) {
   // One write per reply so a concurrent debug print cannot split it.
-  char out[256];
+  char out[512];  // LISTA replies are up to ~460 bytes
   int n = snprintf(out, sizeof out - 1, "%s\n", text);
   if (n > 0) Serial.write((const uint8_t*)out, (size_t)(n < (int)sizeof out - 1 ? n : sizeof out - 1));
 }
@@ -416,7 +416,38 @@ void handle(const char* line, size_t len) {
     case serproto::Cmd::Cancel:  // no PUT running: nothing to cancel
       reply("OK");
       break;
-    default:  // List: a later task
+    case serproto::Cmd::Delete: {
+      // Frees space for users without Wi-Fi. Refused while a transfer or mode switch is running.
+      if (s_host.busy() || transfer::active()) { replyError("ocupado"); break; }
+      if ((player::playing() || player::paused()) && player::currentSlot() == p.slot) {
+        player::stop();
+        for (int i = 0; i < 50 && (player::playing() || player::paused()); ++i) vTaskDelay(pdMS_TO_TICKS(10));
+      }
+      if (storage::remove(p.slot)) reply("OK");
+      else replyError("gravar");
+      break;
+    }
+    case serproto::Cmd::List: {
+      uint32_t sizes[4];
+      uint8_t nameBuf[4][48];
+      const uint8_t* names[4];
+      size_t lens[4];
+      for (int i = 0; i < 4; ++i) {
+        sizes[i] = (uint32_t)storage::slotSize(i + 1);
+        lens[i] = 0;
+        names[i] = nameBuf[i];
+        if (sizes[i] > 0) {
+          String nm = storage::slotName(i + 1);
+          lens[i] = nm.length() > 48 ? 48 : nm.length();
+          memcpy(nameBuf[i], nm.c_str(), lens[i]);
+        }
+      }
+      char out[512];
+      if (serproto::formatList(out, sizeof out, (uint32_t)storage::freeBytes(), sizes, names, lens)) reply(out);
+      else replyError("tamanho");
+      break;
+    }
+    default:
       replyError("nao-suportado");
       break;
   }

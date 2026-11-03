@@ -120,6 +120,19 @@ public static class LogicTests
         Eq(null, AppLogic.ParseTwatch("OK TWATCH 1.1 modo=X wifi=a ip=b livre=abc"), "bad free");
         Eq(null, AppLogic.ParseTwatch(null), "null line");
 
+        // LISTA reply.
+        long lfree;
+        SlotInfo[] sl = AppLogic.ParseLista("OK LISTA 9908224 1000:6162 0: 5:C3A7 0:", out lfree);
+        True(sl != null && sl.Length == 4, "lista parsed");
+        Eq(9908224L, lfree, "lista free");
+        Eq(1000L, sl[0].Size, "lista size1"); Eq("ab", sl[0].Name, "lista name1");
+        Eq(0L, sl[1].Size, "lista size2"); Eq("", sl[1].Name, "lista name2 empty");
+        Eq("ç", sl[2].Name, "lista utf8 name"); Eq(3, sl[2].N, "lista slot number");
+        Eq(null, AppLogic.ParseLista("OK LISTA 5 1:zz 0: 0: 0:", out lfree), "lista bad hex");
+        Eq(null, AppLogic.ParseLista("OK LISTA 5 1:61 0:", out lfree), "lista too few slots");
+        Eq(null, AppLogic.ParseLista("ERRO ocupado", out lfree), "lista error line");
+        Eq(null, AppLogic.ParseLista(null, out lfree), "lista null");
+
         Console.WriteLine(failed == 0 ? "OK " + total + "/" + total : "FALHARAM " + failed + " de " + total);
         return failed == 0 ? 0 : 1;
     }

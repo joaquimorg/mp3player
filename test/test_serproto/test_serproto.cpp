@@ -23,6 +23,21 @@ void test_crc32() {
   d = crc32Update(d, (const uint8_t*)"56789", 5);
   TEST_ASSERT_EQUAL_HEX32(0xCBF43926u, crc32Final(d));
 }
+void test_format_list() {
+  char out[600];
+  uint32_t sizes[4] = {1000, 0, 5, 0};
+  const uint8_t n1[] = {(uint8_t)'a', (uint8_t)'b'};
+  const uint8_t n3[] = {0xC3, 0xA7};
+  const uint8_t* names[4] = {n1, nullptr, n3, nullptr};
+  size_t lens[4] = {2, 0, 2, 0};
+  size_t n = serproto::formatList(out, sizeof out, 9908224u, sizes, names, lens);
+  TEST_ASSERT_EQUAL_STRING("OK LISTA 9908224 1000:6162 0: 5:C3A7 0:", out);
+  TEST_ASSERT_EQUAL_UINT32(strlen(out), n);
+  char small[12];
+  TEST_ASSERT_EQUAL_UINT32(0, serproto::formatList(small, sizeof small, 9908224u, sizes, names, lens));
+  TEST_ASSERT_EQUAL_CHAR(0, small[0]);
+}
+
 void test_hex() {
   uint8_t o[4];
   size_t n = 99;
@@ -49,6 +64,18 @@ void test_hello_cancel_list() {
   TEST_ASSERT_TRUE(p.cmd == Cmd::List);
   TEST_ASSERT_FALSE(parse("LISTA x", p));
   TEST_ASSERT_FALSE(parse("twatch?", p));
+}
+void test_delete_cmd() {
+  Parsed p;
+  TEST_ASSERT_TRUE(parse("APAGAR 3", p));
+  TEST_ASSERT_TRUE(p.cmd == Cmd::Delete);
+  TEST_ASSERT_EQUAL_INT(3, p.slot);
+  TEST_ASSERT_FALSE(parse("APAGAR", p));
+  TEST_ASSERT_FALSE(parse("APAGAR 0", p));
+  TEST_ASSERT_FALSE(parse("APAGAR 5", p));
+  TEST_ASSERT_FALSE(parse("APAGAR 12", p));
+  TEST_ASSERT_FALSE(parse("APAGAR x", p));
+  TEST_ASSERT_FALSE(parse("APAGAR 3 ", p));
 }
 void test_wifi_basic() {
   Parsed p;
@@ -475,8 +502,8 @@ void test_block_total_huge() {
 
 static void runAll() {
   UNITY_BEGIN();
-  RUN_TEST(test_crc16); RUN_TEST(test_crc32); RUN_TEST(test_hex);
-  RUN_TEST(test_hello_cancel_list); RUN_TEST(test_wifi_basic); RUN_TEST(test_wifi_spaces);
+  RUN_TEST(test_crc16); RUN_TEST(test_crc32); RUN_TEST(test_hex); RUN_TEST(test_format_list);
+  RUN_TEST(test_hello_cancel_list); RUN_TEST(test_delete_cmd); RUN_TEST(test_wifi_basic); RUN_TEST(test_wifi_spaces);
   RUN_TEST(test_wifi_pass_special_bytes); RUN_TEST(test_wifi_limits); RUN_TEST(test_wifi_no_tab);
   RUN_TEST(test_put); RUN_TEST(test_put_errors); RUN_TEST(test_mode_baud);
   RUN_TEST(test_oversize_line); RUN_TEST(test_junk_never_crashes);

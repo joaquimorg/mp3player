@@ -6,3 +6,4 @@ tools/pc/ultimo-ip.txt
 app/bin/
 app/*.exe
 app/twatch-config.txt
+app/twatch-autosend.log
