@@ -42,6 +42,17 @@ USB-CDC/UART a 115200, linhas terminadas em `\n`, no firmware `watch` (não só 
 - O protocolo corre numa tarefa que lê a série sem bloquear a interface nem a reprodução, e ignora lixo (como os registos de arranque do ESP32).
 - Nota de segurança: o acesso é físico (cabo USB). A palavra-passe do Wi-Fi continua guardada em claro no NVS, como já aceite.
 
+## Envio de música: Wi-Fi ou série (decisão do utilizador)
+O envio usa **Wi-Fi se o relógio tiver Wi-Fi configurado, senão a porta série**.
+- A app lê `wifi=` em `TWATCH?`. Se houver rede configurada: pede `MODO PROG` se necessário, espera pelo endereço e envia por HTTP (`POST /api/slot/N`). Se o relógio não ficar acessível por Wi-Fi em 40 s, a app pergunta se quer enviar por USB.
+- Se não houver Wi-Fi configurado (ou o utilizador marcar "Forçar USB"), envia pela série.
+- **Envio pela série** (qualquer modo; o relógio pausa a reprodução durante a transferência e retoma no fim):
+  - `PUT <slot> <tamanho> <crc32> <nome em hexadecimal UTF-8>` -> `OK PUT` ou `ERRO <motivo>` (slot inválido, não é MP3 (primeiros 4 bytes enviados no bloco 0), sem espaço, com a mesma regra `tamanho + 16 KiB <= livre`).
+  - Depois, blocos de até 4096 bytes: `<seq 1 byte (número do bloco módulo 256)><dados><crc16 CCITT de seq+dados, 2 bytes>`; o relógio responde `K` (aceite) ou `R` (repetir). Um bloco repetido com o mesmo `seq` que já foi aceite (ACK perdido) é confirmado com `K` sem ser escrito outra vez. A app repete até 5 vezes um bloco com `R` ou sem resposta em 3 s; depois cancela (`CANCELAR`).
+  - No fim o relógio compara o CRC32 total e responde `OK <crc32>` e faz o `commit()` atómico do `SlotWriter`. Qualquer falha, cancelamento ou 5 s sem dados faz `abort()` e o slot anterior mantém-se.
+  - Antes do `PUT`, a app pode mudar a velocidade com `BAUD 921600` -> `OK`; o relógio muda e a app muda a seguir; o relógio volta a 115200 no fim da transferência ou ao falhar.
+- O relógio mostra o mesmo ecrã de progresso nos dois métodos (fonte: Wi-Fi ou USB), mantendo o ecrã ligado.
+
 ## mDNS no relógio
 Em modo Programação (Wi-Fi ligado), o relógio anuncia `twatch.local` (serviço HTTP na porta 80). O Windows 10/11 resolve nomes `.local`. O IP continua visível no ecrã.
 
@@ -59,6 +70,6 @@ Em modo Programação (Wi-Fi ligado), o relógio anuncia `twatch.local` (serviç
 - Envio grande (até ~12 MB, perto de 4 minutos): barra de progresso e aviso para não desligar o relógio.
 
 ## Testes
-- Protocolo série no relógio: testes unitários no relógio para o analisador de comandos (lib pura) e verificação real com a app/ferramenta de linha de comandos.
+- Protocolo série no relógio: testes unitários no relógio para o analisador de comandos e o enquadramento de blocos/CRC (lib pura), e verificação real com a app ou com uma ferramenta de linha de comandos (envio de 1 MB e 4,4 MB; corte do cabo a meio com o slot anterior intacto; bloco corrompido repetido).
 - App: compilar sem avisos; lógica pura (decisão de recodificar, cálculo de espaço, nomes seguros) em testes de consola executáveis sem a janela; verificação ponta a ponta com o relógio real (Wi-Fi por série, listar, enviar ficheiro, enviar YouTube, apagar).
 - Verificação visual da janela pelo utilizador.
