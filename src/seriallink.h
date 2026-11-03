@@ -17,4 +17,8 @@ struct Host {
 // Call after Serial.begin(). Starts the task.
 void begin(const Host& host);
 
+// True while a serial PUT is claimed/running (any task). Mode requests and Wi-Fi uploads must set their own
+// flag first and then check this (PUT does the opposite), so the two can never start together.
+bool putActive();
+
 }  // namespace seriallink

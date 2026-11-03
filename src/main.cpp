@@ -153,6 +153,11 @@ void hostRequest(ui::Mode m) {
   // Claim busy atomically, like serialRequestMode: a request that lost the race is dropped.
   bool expected = false;
   if (!s_busy.compare_exchange_strong(expected, true)) return;
+  // Busy is claimed first, then the serial PUT is checked (a PUT claims first, then checks busy).
+  if (seriallink::putActive() || transfer::active()) {
+    s_busy = false;
+    return;
+  }
   s_startAt = 0;
   s_requestAt = nonZero(millis());
   xQueueSend(s_cmds, &m, portMAX_DELAY);
@@ -163,6 +168,10 @@ bool serialRequestMode(bool program) {
   if (transfer::active() || netmode::uploading()) return false;
   bool expected = false;
   if (!s_busy.compare_exchange_strong(expected, true)) return false;
+  if (seriallink::putActive() || transfer::active()) {
+    s_busy = false;
+    return false;
+  }
   s_startAt = 0;
   s_requestAt = nonZero(millis());
   ui::Mode m = program ? ui::Mode::Program : ui::Mode::Play;
@@ -184,8 +193,13 @@ bool hostUploading() { return s_mode.load() == ui::Mode::Program && !s_busy.load
 }  // namespace
 
 void setup() {
-  Serial.setRxBufferSize(2048);  // before begin(): the serial task polls every 5 ms
+  // Before begin(). Serial PUT is stop-and-wait (one <= 4099-byte frame in flight); 8 KB absorbs a whole frame
+  // at 921600 while the serial task is stalled in a LittleFS write.
+  Serial.setRxBufferSize(8192);
   Serial.begin(115200);
+  // The core's default FIFO-full threshold above 57600 baud is 120 of 128 bytes: at 921600 that leaves only ~87 us
+  // of interrupt latency (the UART ISR is not in IRAM) before the FIFO overflows. 64 leaves ~0.7 ms.
+  Serial.setRxFIFOFull(64);
 #ifndef UI_DEBUG
   // Serial belongs to the PC protocol: silence library logs (A2DP etc. log through log_printf/ets_printf).
   Serial.setDebugOutput(false);

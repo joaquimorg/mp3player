@@ -13,6 +13,7 @@
 #include <memory>
 #include <string>
 #include "net_logic.h"
+#include "seriallink.h"
 #include "settings.h"
 #include "slot_logic.h"
 #include "storage.h"
@@ -159,12 +160,22 @@ void handleUpload() {
   HTTPUpload& up = s_server->upload();
   if (up.status == UPLOAD_FILE_START) {
     if (up.name != "file") return;  // ignore other file fields
-    if (s_up.active) {              // second "file" part: keep the first outcome
+    if (s_up.active || s_up.responded) {  // second "file" part: keep the first outcome
       s_up.dupFile = true;
       return;
     }
+    s_receiving = true;  // set before checking the serial PUT (which claims first, then checks this)
+    if (seriallink::putActive()) {
+      // A USB upload owns the transfer state: refuse without touching it (s_up.active stays false, so
+      // resetUpload() will not report a failure over the USB transfer).
+      s_receiving = false;
+      s_up.responded = true;
+      sendError(409, "O relógio está a receber uma música por USB. Tenta mais tarde.");
+      int fd = s_server->client().fd();
+      if (fd >= 0) lwip_shutdown(fd, SHUT_RDWR);
+      return;
+    }
     s_up.active = true;
-    s_receiving = true;
     s_up.slot = slotFromUri(s_server->uri());
     s_up.contentLength = s_server->clientContentLength();
     s_up.t0 = millis();
