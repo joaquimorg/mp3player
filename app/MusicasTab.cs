@@ -1,4 +1,5 @@
-// "Músicas" tab: the 4 slots, delete, and sending a song by Wi-Fi (when configured) or by USB.
+// "Músicas" section (the main page): the 4 slots, adding a song (link or file) and sending it to the
+// watch by Wi-Fi when a network is saved, otherwise by USB. C# 5.
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -9,125 +10,206 @@ using System.Windows.Forms;
 
 public partial class MainForm
 {
-    ListView musList;
-    Label musFree, musSource, musStatus;
-    TextBox musFile, musLog;
+    SlotRow[] musRows = new SlotRow[4];
+    Label musFree, musStatus;
+    TextBox musFile;
     ComboBox musSlot;
-    CheckBox musForceUsb;
-    Button musSend, musCancel, musPick, musDelete, musRefresh;
+    Button musSend, musCancel, musPick;
     ProgressBar musBar;
+    Panel musProgress;
     CancellationTokenSource musCts;
     SlotInfo[] musSlots;
     long musFreeBytes;
     bool musBusy;
+    bool musUserPicked;   // the user chose a destination (otherwise: the first empty slot)
+
+    static TableLayoutPanel Stack()
+    {
+        TableLayoutPanel t = new TableLayoutPanel();
+        t.Dock = DockStyle.Top;
+        t.AutoSize = true;
+        t.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        t.ColumnCount = 1;
+        t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        t.BackColor = Theme.Card;
+        t.Margin = new Padding(0);
+        return t;
+    }
+
+    static void AddRow(TableLayoutPanel t, Control c, int bottom)
+    {
+        c.Margin = new Padding(0, 0, 0, bottom);
+        t.RowCount++;
+        t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        t.Controls.Add(c, 0, t.RowCount - 1);
+    }
 
     void BuildMusicasTab()
     {
-        TabPage page = new TabPage("Músicas");
-        page.Padding = new Padding(12);
-        tabs.TabPages.Add(page);
+        TableLayoutPanel col = NewColumn(pageMusic);
 
-        TableLayoutPanel t = new TableLayoutPanel();
-        t.Dock = DockStyle.Fill;
-        t.ColumnCount = 1;
-        t.RowCount = 3;
-        t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        t.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-        page.Controls.Add(t);
+        // ---- the 4 songs ----
+        Card songs = new Card();
+        TableLayoutPanel st = Stack();
+        TableLayoutPanel head = new TableLayoutPanel();
+        head.Dock = DockStyle.Top;
+        head.AutoSize = true;
+        head.ColumnCount = 2;
+        head.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        head.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        head.BackColor = Theme.Card;
+        head.Controls.Add(Theme.Label("As tuas músicas", Theme.Big, Theme.Text), 0, 0);
+        musFree = Theme.Label("", Theme.Small, Theme.Muted);
+        musFree.Anchor = AnchorStyles.Right;
+        head.Controls.Add(musFree, 1, 0);
+        AddRow(st, head, 12);
+        for (int i = 0; i < 4; i++)
+        {
+            SlotRow row = new SlotRow(i + 1);
+            row.Dock = DockStyle.Fill;
+            row.Picked += PickSlot;
+            row.DeleteClicked += MusicasDelete;
+            row.Dropped += delegate(int n, IDataObject d) { HandleDrop(d, n); };
+            musRows[i] = row;
+            AddRow(st, row, 0);
+        }
+        songs.Controls.Add(st);
+        AddCard(col, songs);
 
-        // Slots.
-        GroupBox gSlots = new GroupBox();
-        gSlots.Text = "Músicas no relógio";
-        gSlots.Dock = DockStyle.Top;
-        gSlots.Height = 214;
-        gSlots.Padding = new Padding(10);
-        musList = new ListView();
-        musList.View = View.Details;
-        musList.FullRowSelect = true;
-        musList.MultiSelect = false;
-        musList.HideSelection = false;
-        musList.Columns.Add("Slot", 50);
-        musList.Columns.Add("Nome", 420);
-        musList.Columns.Add("Tamanho", 90);
-        musList.Dock = DockStyle.Top;
-        musList.Height = 110;
-        FlowLayoutPanel fb = new FlowLayoutPanel();
-        fb.Dock = DockStyle.Top;
-        fb.AutoSize = true;
-        musRefresh = new Button { Text = "Atualizar", AutoSize = true };
-        musRefresh.Click += delegate { MusicasRefresh(); };
-        musDelete = new Button { Text = "Apagar a selecionada", AutoSize = true };
-        musDelete.Click += MusicasDelete;
-        musFree = new Label { Text = "", AutoSize = true, Padding = new Padding(10, 6, 0, 0) };
-        musSource = new Label { Text = "", AutoSize = true, ForeColor = Color.DimGray, Padding = new Padding(10, 6, 0, 0) };
-        fb.Controls.Add(musRefresh);
-        fb.Controls.Add(musDelete);
-        fb.Controls.Add(musFree);
-        fb.Controls.Add(musSource);
-        gSlots.Controls.Add(fb);
-        gSlots.Controls.Add(musList);
-        t.Controls.Add(gSlots, 0, 0);
+        // ---- add a song ----
+        Card add = new Card();
+        TableLayoutPanel at = Stack();
+        AddRow(at, Theme.Label("Adicionar uma música", Theme.Big, Theme.Text), 4);
+        Label hint = Theme.Label("Cola um link (por exemplo do YouTube) ou escolhe um ficheiro de áudio do computador. " +
+                                 "Também podes arrastar um ficheiro ou um link para esta janela.", Theme.Small, Theme.Muted);
+        hint.MaximumSize = new Size(700, 0);
+        AddRow(at, hint, 12);
 
-        // Send.
-        GroupBox gSend = new GroupBox();
-        gSend.Text = "Enviar uma música";
-        gSend.Dock = DockStyle.Top;
-        gSend.AutoSize = true;
-        gSend.Padding = new Padding(10);
-        TableLayoutPanel s = new TableLayoutPanel();
-        s.Dock = DockStyle.Top;
-        s.AutoSize = true;
-        s.ColumnCount = 3;
-        s.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        s.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-        s.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        s.Controls.Add(new Label { Text = "Link ou ficheiro:", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 0);
-        musFile = new TextBox { Dock = DockStyle.Fill };
-        s.Controls.Add(musFile, 1, 0);
-        musPick = new Button { Text = "Escolher ficheiro...", AutoSize = true };
+        TableLayoutPanel input = new TableLayoutPanel();
+        input.Dock = DockStyle.Top;
+        input.AutoSize = true;
+        input.ColumnCount = 2;
+        input.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        input.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        input.BackColor = Theme.Card;
+        musFile = new TextBox();
+        musFile.Font = new Font("Segoe UI", 11.5F);
+        musFile.BorderStyle = BorderStyle.FixedSingle;
+        musFile.Dock = DockStyle.Fill;
+        musFile.Margin = new Padding(0, 2, 10, 0);
+        Cue(musFile, "Cola aqui o link ou o caminho do ficheiro");
+        input.Controls.Add(musFile, 0, 0);
+        musPick = Theme.SecondaryButton("Escolher ficheiro...");
+        musPick.Width = 170;
+        musPick.Margin = new Padding(0);
         musPick.Click += MusicasPick;
-        s.Controls.Add(musPick, 2, 0);
-        s.Controls.Add(new Label { Text = "Slot:", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 1);
-        musSlot = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 70 };
-        musSlot.Items.AddRange(new object[] { "1", "2", "3", "4" });
-        musSlot.SelectedIndex = 0;
-        s.Controls.Add(musSlot, 1, 1);
-        musForceUsb = new CheckBox { Text = "Forçar USB (não usar o Wi-Fi)", AutoSize = true, Checked = AppConfig.ForceUsb };
-        musForceUsb.CheckedChanged += delegate { AppConfig.ForceUsb = musForceUsb.Checked; AppConfig.Save(); };
-        s.Controls.Add(musForceUsb, 1, 2);
-        FlowLayoutPanel fs = new FlowLayoutPanel();
-        fs.AutoSize = true;
-        musSend = new Button { Text = "Enviar para o relógio", AutoSize = true };
-        musSend.Click += MusicasSend;
-        musCancel = new Button { Text = "Cancelar", AutoSize = true, Enabled = false };
-        musCancel.Click += delegate { if (musCts != null) musCts.Cancel(); };
-        fs.Controls.Add(musSend);
-        fs.Controls.Add(musCancel);
-        s.Controls.Add(fs, 1, 3);
-        musBar = new ProgressBar { Dock = DockStyle.Fill, Minimum = 0, Maximum = 1000, Height = 18 };
-        s.Controls.Add(musBar, 1, 4);
-        musStatus = new Label { Text = "", AutoSize = true, MaximumSize = new Size(560, 0) };
-        s.Controls.Add(musStatus, 1, 5);
-        gSend.Controls.Add(s);
-        t.Controls.Add(gSend, 0, 1);
+        input.Controls.Add(musPick, 1, 0);
+        AddRow(at, input, 12);
 
-        musLog = NewLogBox();
-        musLog.Dock = DockStyle.Fill;
-        t.Controls.Add(musLog, 0, 2);
+        FlowLayoutPanel dest = new FlowLayoutPanel();
+        dest.AutoSize = true;
+        dest.WrapContents = false;
+        dest.BackColor = Theme.Card;
+        Label lbl = Theme.Label("Guardar em:", Theme.Normal, Theme.Text);
+        lbl.Margin = new Padding(0, 6, 8, 0);
+        dest.Controls.Add(lbl);
+        musSlot = new ComboBox();
+        musSlot.DropDownStyle = ComboBoxStyle.DropDownList;
+        musSlot.Width = 360;
+        musSlot.Font = Theme.Normal;
+        musSlot.SelectedIndexChanged += delegate { SyncSlotSelection(); };
+        dest.Controls.Add(musSlot);
+        AddRow(at, dest, 14);
+
+        musSend = Theme.PrimaryButton("Adicionar ao relógio");
+        musSend.Dock = DockStyle.Fill;
+        musSend.Margin = new Padding(0);
+        musSend.Click += MusicasSend;
+        AddRow(at, musSend, 10);
+
+        musStatus = Theme.Label("", Theme.Normal, Theme.Muted);
+        musStatus.MaximumSize = new Size(700, 0);
+        AddRow(at, musStatus, 8);
+
+        musProgress = new Panel();
+        musProgress.Height = 40;
+        musProgress.Dock = DockStyle.Fill;
+        musProgress.BackColor = Theme.Card;
+        musProgress.Visible = false;
+        musCancel = Theme.SecondaryButton("Cancelar");
+        musCancel.Width = 110;
+        musCancel.Dock = DockStyle.Right;
+        musCancel.Click += delegate { if (musCts != null) musCts.Cancel(); };
+        musBar = new ProgressBar();
+        musBar.Style = ProgressBarStyle.Continuous;
+        musBar.Minimum = 0;
+        musBar.Maximum = 1000;
+        musBar.Dock = DockStyle.Fill;
+        Panel barHost = new Panel { Dock = DockStyle.Fill, Padding = new Padding(0, 8, 14, 8), BackColor = Theme.Card };
+        barHost.Controls.Add(musBar);
+        musProgress.Controls.Add(barHost);
+        musProgress.Controls.Add(musCancel);
+        AddRow(at, musProgress, 0);
+        add.Controls.Add(at);
+        AddCard(col, add);
+
+        FillSlots();
     }
 
     // Stable names so UI automation (tests) can find the controls.
     void NameControls()
     {
-        relLog.Name = "relLog"; relStatus.Name = "relStatus"; relRefresh.Name = "relRefresh";
         musFile.Name = "musFile"; musSlot.Name = "musSlot"; musSend.Name = "musSend"; musStatus.Name = "musStatus";
-        ferLog.Name = "ferLog"; musLog.Name = "musLog"; musList.Name = "musList"; musForceUsb.Name = "musForceUsb";
+        logBox.Name = "logBox"; musForceUsb.Name = "musForceUsb";
     }
 
-    void MusLog(string s) { AppendLog(musLog, s); }
+    void MusLog(string s) { AppendLog(logBox, s); }
 
     void WatchChanged() { MusicasRefresh(); }
+
+    // ---- slots ---------------------------------------------------------------------
+    // Clicking a slot (or dropping a file on it) makes it the destination.
+    void PickSlot(int n)
+    {
+        if (musBusy || n < 1 || n > 4) return;
+        musUserPicked = true;
+        if (musSlot.SelectedIndex != n - 1) musSlot.SelectedIndex = n - 1;
+        SyncSlotSelection();
+    }
+
+    void SyncSlotSelection()
+    {
+        for (int i = 0; i < 4; i++)
+        {
+            bool sel = musSlot.SelectedIndex == i;
+            if (musRows[i].Selected != sel) { musRows[i].Selected = sel; musRows[i].Invalidate(); }
+        }
+    }
+
+    void FillSlots()
+    {
+        int keep = musSlot.SelectedIndex;
+        musSlot.Items.Clear();
+        for (int i = 0; i < 4; i++)
+        {
+            SlotInfo si = musSlots == null ? null : musSlots[i];
+            musRows[i].SetInfo(si);
+            string text = "Lugar " + (i + 1) + " - ";
+            if (si == null || si.Empty) text += "vazio";
+            else text += si.Name;
+            musSlot.Items.Add(text);
+        }
+        int pick = keep;
+        if (!musUserPicked || pick < 0)
+        {
+            pick = 0;
+            if (musSlots != null)
+                for (int i = 0; i < 4; i++) if (musSlots[i].Empty) { pick = i; break; }
+        }
+        musSlot.SelectedIndex = pick;
+        SyncSlotSelection();
+        musFree.Text = musSlots == null ? "" : "Espaço livre: " + AppLogic.FormatMB(musFreeBytes);
+    }
 
     // Possible Wi-Fi addresses, most likely first.
     List<string> WifiHosts()
@@ -150,27 +232,12 @@ public partial class MainForm
         return api;
     }
 
-    void FillSlots()
-    {
-        musList.Items.Clear();
-        if (musSlots == null) { musFree.Text = ""; return; }
-        foreach (SlotInfo si in musSlots)
-        {
-            ListViewItem it = new ListViewItem(si.N.ToString());
-            it.SubItems.Add(si.Empty ? "(vazio)" : si.Name);
-            it.SubItems.Add(si.Empty ? "" : AppLogic.FormatMB(si.Size));
-            if (si.Empty) it.ForeColor = Color.Gray;
-            musList.Items.Add(it);
-        }
-        musFree.Text = "Espaço livre: " + AppLogic.FormatMB(musFreeBytes);
-    }
-
     // Reads the slots over USB when the watch is plugged in, else over Wi-Fi.
     async Task<bool> LoadSlotsAsync()
     {
         SlotInfo[] slots = null;
         long free = 0;
-        string source = "";
+        Conn via = Conn.None;
         string port = watchPort;
         await UsbRun(delegate
         {
@@ -179,7 +246,7 @@ public partial class MainForm
                 string err;
                 using (SerialLink l = SerialLink.TryOpen(port, 115200, out err))
                 {
-                    if (l != null) { slots = l.ListSlots(out free); if (slots != null) source = "lido por USB"; }
+                    if (l != null) { slots = l.ListSlots(out free); if (slots != null) via = Conn.Usb; }
                 }
             }
             if (slots == null)
@@ -189,22 +256,21 @@ public partial class MainForm
                 {
                     string e;
                     slots = api.GetSlots(out free, out e);
-                    if (slots != null) source = "lido por Wi-Fi";
+                    if (slots != null) via = Conn.Wifi;
                 }
             }
         });
         musSlots = slots;
         musFreeBytes = free;
-        musSource.Text = source;
         FillSlots();
+        SetConn(via);
         return slots != null;
     }
 
     async void MusicasRefresh()
     {
         if (musBusy) return;
-        bool ok = await LoadSlotsAsync();
-        if (!ok) musSource.Text = "relógio não encontrado (USB ou Wi-Fi)";
+        await LoadSlotsAsync();
     }
 
     void MusicasPick(object sender, EventArgs e)
@@ -215,14 +281,13 @@ public partial class MainForm
         if (d.ShowDialog(this) == DialogResult.OK) musFile.Text = d.FileName;
     }
 
-    async void MusicasDelete(object sender, EventArgs e)
+    async void MusicasDelete(int n)
     {
-        if (musBusy || musList.SelectedItems.Count == 0) return;
-        int n = musList.SelectedItems[0].Index + 1;
-        if (musSlots == null || musSlots[n - 1].Empty) return;
-        if (MessageBox.Show(this, "Apagar a música do slot " + n + " (" + musSlots[n - 1].Name + ")?", "Apagar",
+        if (musBusy || musSlots == null || musSlots[n - 1].Empty) return;
+        if (MessageBox.Show(this, "Apagar «" + musSlots[n - 1].Name + "» do relógio?", "Apagar música",
                             MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
         SetBusy(true);
+        musStatus.Text = "A apagar...";
         string port = watchPort;
         string result = null;
         await UsbRun(delegate
@@ -236,12 +301,12 @@ public partial class MainForm
                 }
             }
             WatchApi api = FindApi();
-            if (api == null) { result = "O relógio não está acessível por USB nem por Wi-Fi."; return; }
+            if (api == null) { result = "Não encontro o relógio. Liga-o ao computador com o cabo USB."; return; }
             string e2;
             if (!api.Delete(n, out e2)) result = e2;
         });
-        if (result != null) MusLog("Não foi possível apagar: " + result);
-        else MusLog("Slot " + n + " apagado.");
+        if (result != null) { MusLog("Não foi possível apagar: " + result); musStatus.Text = "Não consegui apagar: " + result; }
+        else { MusLog("Slot " + n + " apagado."); musStatus.Text = "Música apagada."; }
         SetBusy(false);
         await LoadSlotsAsync();
     }
@@ -250,10 +315,12 @@ public partial class MainForm
     {
         musBusy = busy;
         musSend.Enabled = !busy;
-        musDelete.Enabled = !busy;
-        musRefresh.Enabled = !busy;
         musPick.Enabled = !busy;
+        musFile.Enabled = !busy;
+        musSlot.Enabled = !busy;
+        foreach (SlotRow r in musRows) r.DeleteButton.Enabled = !busy;
         musCancel.Enabled = busy && musCts != null;
+        musProgress.Visible = busy && musCts != null;
         if (!busy) musBar.Value = 0;
     }
 
@@ -263,7 +330,7 @@ public partial class MainForm
         {
             int v = total <= 0 ? 0 : (int)Math.Min(1000, done * 1000 / total);
             musBar.Value = v;
-            musStatus.Text = what + " " + AppLogic.FormatMB(done) + " de " + AppLogic.FormatMB(total) + " (" + (v / 10) + "%)";
+            musStatus.Text = what + "  " + (v / 10) + "%  (" + AppLogic.FormatMB(done) + " de " + AppLogic.FormatMB(total) + ")";
         });
     }
 
@@ -272,24 +339,33 @@ public partial class MainForm
         await MusicasSendTask();
     }
 
-    // Used by the test mode: --autosend <file> <slot> [usb] runs the same flow as the Enviar button and
-    // writes the logs to twatch-autosend.log next to the exe, then closes.
+    // Used by the test mode: --autosend <file-or-link> <slot> [usb] runs the same flow as the button and
+    // writes the details log to twatch-autosend.log next to the exe, then closes.
     async Task AutoSend()
     {
-        await RelogioRefreshTask();
+        await RefreshWatchTask();
         musFile.Text = autoArgs[1];
+        musUserPicked = true;
         musSlot.SelectedIndex = int.Parse(autoArgs[2]) - 1;
         musForceUsb.Checked = autoArgs.Length > 3 && autoArgs[3] == "usb";
         await MusicasSendTask();
         File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "twatch-autosend.log"),
-                          "RELOGIO" + Environment.NewLine + relLog.Text + Environment.NewLine + "MUSICAS" +
-                          Environment.NewLine + musLog.Text + Environment.NewLine + "ESTADO " + musStatus.Text);
+                          logBox.Text + Environment.NewLine + "ESTADO " + musStatus.Text);
         Close();
     }
 
     void SetStatus(string s)
     {
         BeginInvoke((Action)delegate { musStatus.Text = s; });
+    }
+
+    // yt-dlp progress ("45.2% of 3.4MiB at ...") -> "A descarregar o áudio... 45%".
+    static string FriendlyDownload(string s)
+    {
+        int sp = s.IndexOf(' ');
+        string first = sp > 0 ? s.Substring(0, sp) : s;
+        if (first.EndsWith("%")) return "A descarregar o áudio... " + first.Split('.')[0] + "%";
+        return s.StartsWith("A ") ? s : "A descarregar o áudio...";
     }
 
     async Task MusicasSendTask()
@@ -310,6 +386,9 @@ public partial class MainForm
         if (!await EnsureTools(needYt, needFf)) return;
 
         int slot = musSlot.SelectedIndex + 1;
+        if (musSlots != null && !musSlots[slot - 1].Empty &&
+            MessageBox.Show(this, "O lugar " + slot + " já tem «" + musSlots[slot - 1].Name + "». Queres substituí-la?",
+                            "Substituir música", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
         musCts = new CancellationTokenSource();
         CancellationToken ct = musCts.Token;
         SetBusy(true);
@@ -326,7 +405,7 @@ public partial class MainForm
                     mp3 = await Task.Run(delegate
                     {
                         string t, e2;
-                        string r = cv.FromUrl(url, delegate(string m) { BeginInvoke((Action)delegate { MusLog(m); }); }, SetStatus, ct, out t, out e2);
+                        string r = cv.FromUrl(url, delegate(string m) { BeginInvoke((Action)delegate { MusLog(m); }); }, delegate(string st) { SetStatus(FriendlyDownload(st)); }, ct, out t, out e2);
                         title = t; err = e2;
                         return r;
                     });
@@ -356,7 +435,7 @@ public partial class MainForm
                 SetStatus("A ler o relógio...");
                 if (!await LoadSlotsAsync() || musSlots == null)
                 {
-                    MessageBox.Show(this, "Não consigo falar com o relógio. Liga-o por USB (separador Relógio) ou põe-no em Programação na mesma rede Wi-Fi.",
+                    MessageBox.Show(this, "Não consigo falar com o relógio. Liga-o ao computador com o cabo USB e tenta outra vez.",
                                     "Enviar", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
@@ -367,7 +446,7 @@ public partial class MainForm
                 {
                     if (!await EnsureTools(false, true)) return;
                     MusLog("Com " + AppLogic.FormatMB(size) + " não cabe. A recodificar a 64 kbps mono...");
-                    SetStatus("A recodificar a 64 kbps mono...");
+                    SetStatus("A comprimir a música para caber no relógio...");
                     string m64 = await Task.Run(delegate
                     {
                         string e2;
@@ -380,13 +459,13 @@ public partial class MainForm
                     EncodePlan p2 = AppLogic.PlanAfterRetry(size2, freeEff);
                     if (p2 == EncodePlan.TooLarge)
                     {
-                        MessageBox.Show(this, "A música é demasiado grande (mais de " + AppLogic.FormatMB(AppLogic.MaxSane) + ") mesmo a 64 kbps mono.",
+                        MessageBox.Show(this, "A música é demasiado grande (mais de " + AppLogic.FormatMB(AppLogic.MaxSane) + ") mesmo comprimida ao máximo.",
                                         "Enviar", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                         return;
                     }
                     if (p2 == EncodePlan.DoesNotFit)
                     {
-                        MessageBox.Show(this, "Não cabe, mesmo a 64 kbps mono: faltam " + AppLogic.FormatMB(AppLogic.MissingBytes(size2, freeEff)) +
+                        MessageBox.Show(this, "Não cabe, mesmo comprimida ao máximo: faltam " + AppLogic.FormatMB(AppLogic.MissingBytes(size2, freeEff)) +
                                         " no relógio. Apaga outra música e tenta de novo.", "Enviar", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                         return;
                     }
@@ -408,7 +487,7 @@ public partial class MainForm
         musStatus.Text = "A ler o relógio...";
         if (!await LoadSlotsAsync() || musSlots == null)
         {
-            MessageBox.Show(this, "Não consigo falar com o relógio. Liga-o por USB (separador Relógio) ou põe-no em Programação na mesma rede Wi-Fi.",
+            MessageBox.Show(this, "Não consigo falar com o relógio. Liga-o ao computador com o cabo USB e tenta outra vez.",
                             "Enviar", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
@@ -418,7 +497,7 @@ public partial class MainForm
         {
             if (!cur.Empty && AppLogic.Fits(size, musFreeBytes + cur.Size))
             {
-                if (MessageBox.Show(this, "Para caber, a música do slot " + slot + " (" + cur.Name + ") tem de ser apagada antes. Apagar e enviar?",
+                if (MessageBox.Show(this, "Para caber, «" + cur.Name + "» (lugar " + slot + ") tem de ser apagada antes. Apagar e enviar?",
                                     "Enviar", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
                 deleteFirst = true;
             }
@@ -439,8 +518,8 @@ public partial class MainForm
         {
             if (!watch.InProgramMode && watchPort != null)
             {
-                MusLog("A pôr o relógio em Programação (Wi-Fi)...");
-                musStatus.Text = "A ligar o relógio ao Wi-Fi...";
+                MusLog("A preparar o relógio para receber por Wi-Fi...");
+                musStatus.Text = "A preparar o relógio...";
                 await SwitchMode(true);
             }
             musStatus.Text = "A procurar o relógio na rede...";
@@ -449,12 +528,12 @@ public partial class MainForm
         Transport tr = AppLogic.ChooseTransport(wifiConfigured, api != null, forceUsb);
         if (tr == Transport.Usb && wifiConfigured && !forceUsb)
         {
-            if (MessageBox.Show(this, "O relógio não respondeu por Wi-Fi. Enviar por USB?", "Enviar",
+            if (MessageBox.Show(this, "O relógio não respondeu pelo Wi-Fi. Queres enviar pelo cabo USB?", "Enviar",
                                 MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
         }
         if (tr == Transport.Usb && watchPort == null)
         {
-            MessageBox.Show(this, "Para enviar por USB liga o relógio ao computador (separador Relógio, \"Atualizar\").", "Enviar",
+            MessageBox.Show(this, "Liga o relógio ao computador com o cabo USB e tenta outra vez.", "Enviar",
                             MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
@@ -491,7 +570,7 @@ public partial class MainForm
                 string m = null;
                 res = await Task.Run(delegate
                 {
-                    return api.Upload(path, slot, name, delegate(long b) { SetProgress(b, size, "A enviar por Wi-Fi:"); }, ct, out m);
+                    return api.Upload(path, slot, name, delegate(long b) { SetProgress(b, size, "A enviar para o relógio"); }, ct, out m);
                 });
                 msg = m;
                 if (res != PutResult.LinkProblem) break;
@@ -513,7 +592,7 @@ public partial class MainForm
                     using (SerialLink l = SerialLink.TryOpen(watchPort, 115200, out err))
                     {
                         if (l == null) { m = err; return PutResult.Failed; }
-                        return l.PutFile(path, slot, name, f, delegate(long b) { SetProgress(b, size, "A enviar por USB:"); }, ct, out m);
+                        return l.PutFile(path, slot, name, f, delegate(long b) { SetProgress(b, size, "A enviar para o relógio"); }, ct, out m);
                     }
                 });
                 msg = m;

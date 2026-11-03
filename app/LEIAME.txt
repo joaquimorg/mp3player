@@ -1,8 +1,7 @@
 APP T-WATCH MP3 (Windows 10/11, sem instalar nada)
 
 1. Compila uma vez: duplo clique em compilar.bat (usa o compilador que ja vem no Windows). Fica TWatchMP3.exe.
-2. Liga o relogio ao PC por USB (cabo de dados) e abre TWatchMP3.exe.
-3. Separador Relogio: "Atualizar" encontra o relogio. Escreve o nome e a palavra-passe do Wi-Fi (2,4 GHz) e carrega em "Enviar Wi-Fi para o relogio".
-4. Separador Musicas: cola um link do YouTube ou escolhe um ficheiro de audio, escolhe o slot e carrega em "Enviar para o relogio". Usa o Wi-Fi se o relogio tiver rede configurada, senao o cabo USB.
-5. Separador Ferramentas: descarrega o yt-dlp e o ffmpeg (so uma vez). Se o YouTube deixar de funcionar, "Atualizar o yt-dlp".
+2. Liga o relogio ao PC com o cabo USB e abre TWatchMP3.exe.
+3. Musicas (ecra inicial): cola um link do YouTube ou arrasta/escolhe um ficheiro de audio, escolhe o lugar e carrega em "Adicionar ao relogio". Usa o Wi-Fi se o relogio tiver rede guardada, senao o cabo USB.
+4. Definicoes: estado do relogio, Wi-Fi do relogio (nome e palavra-passe) e, em "opcoes avancadas", os programas auxiliares (yt-dlp e ffmpeg, a app instala-os quando precisa).
 Mais detalhes em ..\README.md. O .exe nao esta assinado: o Windows pode avisar na primeira vez.

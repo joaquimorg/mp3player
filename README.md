@@ -105,15 +105,20 @@ Com a app Windows não precisas de fazer nada no relógio. Para a página web, e
 
 ### App Windows (recomendada)
 
-A pasta `app` tem a **app T-Watch MP3** para Windows 10/11, com janela e sem instaladores:
+A pasta `app` tem a **app T-Watch MP3** para Windows 10/11, com janela e sem instaladores. Compila-a uma vez com `app\compilar.bat` (usa o compilador de C# que já vem no Windows); fica `app\TWatchMP3.exe`, que se abre com duplo clique. Liga o relógio ao PC com o cabo USB.
 
-1. Compila-a uma vez com `app\compilar.bat` (usa o compilador de C# que já vem no Windows). Fica `app\TWatchMP3.exe`; abre-se com duplo clique.
-2. **Separador Relógio**: liga o relógio ao PC por USB e carrega em *Atualizar* (a app encontra a porta COM sozinha). Escreve o nome e a palavra-passe da tua rede Wi-Fi (2,4 GHz) e carrega em *Enviar Wi-Fi para o relógio*: a palavra-passe viaja só pelo cabo e fica guardada no relógio. Também podes pôr o relógio em Programação ou Reprodução.
-3. **Separador Músicas**: mostra as 4 músicas e o espaço livre, e deixa apagar. Para enviar, cola um **link do YouTube** (ou escolhe um ficheiro de áudio: mp3, m4a, wav, flac...), escolhe o slot e carrega em *Enviar para o relógio*. A app converte para MP3 e, se não couber, recodifica a 64 kbps mono.
-4. O envio usa o **Wi-Fi se o relógio tiver uma rede configurada** (a app põe-no em Programação e encontra-o em `twatch.local`); senão, ou se marcares *Forçar USB*, usa o **cabo USB** (cerca de 38 KB/s). Durante o envio o ecrã do relógio mostra o progresso.
-5. **Separador Ferramentas**: descarrega (e atualiza) o `yt-dlp` e o `ffmpeg`, que a app usa para converter. Se o YouTube deixar de funcionar, atualiza o yt-dlp.
+**Músicas** (o ecrã inicial)
+- Mostra as 4 músicas do relógio (nome e tamanho), o espaço livre e um botão **Apagar** em cada uma.
+- Para adicionar uma música: cola um **link** (por exemplo do YouTube) ou escolhe/arrasta um **ficheiro de áudio** (mp3, m4a, wav, flac...) para a janela, escolhe o lugar em *Guardar em* (a app propõe o primeiro vazio; também podes carregar num lugar da lista ou largar o ficheiro nele) e carrega em **Adicionar ao relógio**. Se o lugar já tiver uma música, a app pergunta se queres substituir.
+- A app converte para MP3 e, se não couber, comprime mais (64 kbps mono). O envio usa o **Wi-Fi se o relógio tiver uma rede guardada**; senão usa o **cabo USB**. Durante o envio o relógio mostra o progresso no ecrã.
+- No canto superior direito, um ponto verde mostra que o relógio está ligado (a vermelho: não encontrado).
 
-Notas: a primeira vez que abres o `.exe` o Windows pode avisar que o programa não é conhecido (não está assinado). Se a porta COM estiver ocupada por outro programa (um monitor série, por exemplo), fecha-o. As definições da app (última porta e último IP) ficam em `app\twatch-config.txt`.
+**Definições**
+- *O relógio*: estado da ligação e espaço livre, com *Procurar outra vez*.
+- *Wi-Fi do relógio*: escreve o nome e a palavra-passe da tua rede (2,4 GHz) e carrega em *Guardar no relógio*. A palavra-passe viaja só pelo cabo USB e fica guardada no relógio.
+- *Opções avançadas* (escondidas por defeito): enviar sempre por USB, instalar/atualizar o `yt-dlp` e o `ffmpeg` (programas auxiliares que a app instala sozinha quando precisa; se o YouTube deixar de funcionar, atualiza o yt-dlp) e os detalhes técnicos.
+
+Notas: a primeira vez que abres o `.exe` o Windows pode avisar que o programa não é conhecido (não está assinado). Se outro programa estiver a usar o relógio (um monitor série, por exemplo), fecha-o. A app guarda a última porta e o último endereço em `app\twatch-config.txt`.
 
 ### Pela página web (telemóvel ou PC)
 
@@ -180,7 +185,7 @@ A descrição completa e as regras de recuperação estão em `docs/superpowers/
 
 ### A app (código)
 
-`app\AppLogic.cs` tem a lógica pura (escolha Wi-Fi/USB, planos de recodificação, somas de verificação, validações) com testes de consola em `app\tests\LogicTests.cs`; `app\compilar.bat testes` corre só esses testes. `SerialLink.cs` (USB), `WatchApi.cs` (HTTP), `Converter.cs` e `Tools.cs` (yt-dlp/ffmpeg) e as janelas (`MainForm.cs`, `RelogioTab.cs`, `MusicasTab.cs`, `FerramentasTab.cs`) são C# 5. Para testes sem janela: `TWatchMP3.exe --autosend <ficheiro-ou-link> <slot> [usb]` faz o mesmo que o botão *Enviar* e escreve o registo em `app\twatch-autosend.log`.
+`app\AppLogic.cs` tem a lógica pura (escolha Wi-Fi/USB, planos de recodificação, somas de verificação, validações) com testes de consola em `app\tests\LogicTests.cs`; `app\compilar.bat testes` corre só esses testes. `SerialLink.cs` (USB), `WatchApi.cs` (HTTP), `Converter.cs` e `Tools.cs` (yt-dlp/ffmpeg) e as janelas (`MainForm.cs`, `MusicasTab.cs`, `DefinicoesTab.cs`, `Controls.cs` para o aspeto) são C# 5. Para testes sem janela: `TWatchMP3.exe --autosend <ficheiro-ou-link> <slot> [usb]` faz o mesmo que o botão *Enviar* e escreve o registo em `app\twatch-autosend.log`.
 
 ### Testes
 
