@@ -5,46 +5,85 @@ namespace uilogic {
 const char* const kEllipsis = "\xE2\x80\xA6";
 
 // ---- layout -----------------------------------------------------------------
-Rect playRect(PlayHit h) {
-  int i = (int)h;
-  if (h >= PlayHit::Slot1 && h <= PlayHit::Slot4) {
-    int k = i - (int)PlayHit::Slot1;
-    return Rect{0, (int16_t)(k * kSlotRowH), kScreenW, kSlotRowH};
+namespace {
+Rect r(int x, int y, int w, int h) { return Rect{(int16_t)x, (int16_t)y, (int16_t)w, (int16_t)h}; }
+}  // namespace
+
+Rect playerRect(PlayerHit h) {
+  switch (h) {
+    case PlayerHit::Prev: return r(8, 31, 64, 70);
+    case PlayerHit::PlayPause: return r(80, 28, 80, 76);
+    case PlayerHit::Next: return r(168, 31, 64, 70);
+    case PlayerHit::VolDown: return r(8, 112, 64, 56);
+    case PlayerHit::VolUp: return r(168, 112, 64, 56);
+    case PlayerHit::Songs: return r(8, 176, 108, 56);
+    case PlayerHit::Menu: return r(124, 176, 108, 56);
+    default: return r(0, 0, 0, 0);
   }
-  if (h >= PlayHit::Prev && h <= PlayHit::VolUp) {
-    int k = i - (int)PlayHit::Prev;
-    return Rect{(int16_t)(k * 48), kTransportY, 48, kCtrlRowH};
-  }
-  if (h >= PlayHit::Loop && h <= PlayHit::Program) {
-    int k = i - (int)PlayHit::Loop;
-    return Rect{(int16_t)(k * 80), kBottomY, 80, (int16_t)(kScreenH - kBottomY)};
-  }
-  return Rect{0, 0, 0, 0};
+}
+Rect playerVolumeLabel() { return r(80, 112, 80, 56); }
+
+PlayerHit playerHitTest(int x, int y) {
+  for (int i = 1; i <= kPlayerTargets; ++i)
+    if (playerRect((PlayerHit)i).contains(x, y)) return (PlayerHit)i;
+  return PlayerHit::None;
 }
 
-PlayHit playHitTest(int x, int y) {
-  for (int i = (int)PlayHit::Slot1; i <= (int)PlayHit::Program; ++i)
-    if (playRect((PlayHit)i).contains(x, y)) return (PlayHit)i;
-  return PlayHit::None;
+Rect songsRect(SongsHit h) {
+  if (h >= SongsHit::Slot1 && h <= SongsHit::Slot4) return r(8, 8 + ((int)h - 1) * 58, 164, 50);
+  if (h == SongsHit::Back) return r(180, 8, 52, 224);
+  return r(0, 0, 0, 0);
+}
+SongsHit songsHitTest(int x, int y) {
+  for (int i = 1; i <= kSongsTargets; ++i)
+    if (songsRect((SongsHit)i).contains(x, y)) return (SongsHit)i;
+  return SongsHit::None;
 }
 
-Rect btRowRect(int row) { return Rect{0, (int16_t)(kBtHeaderH + row * kBtRowH), kScreenW, kBtRowH}; }
-
-Rect btButtonRect(BtButton b) {
-  return Rect{(int16_t)((int)b * 80), kBtButtonsY, 80, (int16_t)(kScreenH - kBtButtonsY)};
+Rect menuRect(MenuHit h) {
+  if (h == MenuHit::None) return r(0, 0, 0, 0);
+  int k = (int)h - 1;
+  return r(8 + (k % 2) * 116, 8 + (k / 2) * 116, 108, 108);
 }
+MenuHit menuHitTest(int x, int y) {
+  for (int i = 1; i <= kMenuTargets; ++i)
+    if (menuRect((MenuHit)i).contains(x, y)) return (MenuHit)i;
+  return MenuHit::None;
+}
+
+Rect btRowRect(int row) { return r(8, 8 + row * (kBtRowH + kGap), 224, kBtRowH); }
+
+Rect btButtonRect(BtButton b) { return r(8 + (int)b * 77, kBtButtonsY, 69, 50); }
 
 BtHit btHitTest(int x, int y, int rowsShown, bool moreShown) {
-  for (int r = 0; r < rowsShown && r < kBtRowsPerPage; ++r)
-    if (btRowRect(r).contains(x, y)) return BtHit{BtHit::Kind::Row, r};
+  for (int k = 0; k < rowsShown && k < kBtRowsPerPage; ++k)
+    if (btRowRect(k).contains(x, y)) return BtHit{BtHit::Kind::Row, k};
   if (btButtonRect(BtButton::Scan).contains(x, y)) return BtHit{BtHit::Kind::Scan, 0};
   if (moreShown && btButtonRect(BtButton::More).contains(x, y)) return BtHit{BtHit::Kind::More, 0};
   if (btButtonRect(BtButton::Back).contains(x, y)) return BtHit{BtHit::Kind::Back, 0};
   return BtHit{BtHit::Kind::None, 0};
 }
 
-Rect programBackRect() { return Rect{0, 184, kScreenW, (int16_t)(kScreenH - 184)}; }
+Rect programBackRect() { return r(8, 182, 224, 50); }
 bool programHitTest(int x, int y) { return programBackRect().contains(x, y); }
+
+// ---- navigation -------------------------------------------------------------
+View afterPlayerTap(PlayerHit h) {
+  if (h == PlayerHit::Songs) return View::Songs;
+  if (h == PlayerHit::Menu) return View::Menu;
+  return View::Player;
+}
+View afterSongsTap(SongsHit h, const Action& a) {
+  if (h == SongsHit::Back) return View::Player;
+  if (slotOf(h) && a.kind == Action::Kind::Play) return View::Player;
+  return View::Songs;
+}
+View afterMenuTap(MenuHit h) {
+  if (h == MenuHit::Bluetooth) return View::Bluetooth;
+  if (h == MenuHit::Back) return View::Player;
+  return View::Menu;  // Loop toggles in place; Programar starts a mode switch
+}
+View afterBtTap(BtHit::Kind k) { return k == BtHit::Kind::Back ? View::Player : View::Bluetooth; }
 
 // ---- paging -----------------------------------------------------------------
 int pageCount(int items, int perPage) {
@@ -227,6 +266,15 @@ Action slotTapAction(int slot, bool playing, bool paused, int current, const boo
   if (slot == current && playing) return Action{Action::Kind::Pause, 0};
   if (slot == current && paused) return Action{Action::Kind::Resume, 0};
   return Action{Action::Kind::Play, slot};
+}
+
+Title playerTitle(int current, bool playing, bool paused, const bool has[4], const std::string& currentName) {
+  if (!firstNonEmpty(has)) return Title{Title::Icon::None, "Nenhuma m\xC3\xBAsica"};
+  if ((playing || paused) && current >= 1 && current <= 4) {
+    std::string t = std::to_string(current) + " \xC2\xB7 " + currentName;
+    return Title{playing ? Title::Icon::Play : Title::Icon::Pause, t};
+  }
+  return Title{Title::Icon::None, "Parado"};
 }
 
 std::string btStatusText(bool connected, const std::string& name) {

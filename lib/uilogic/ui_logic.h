@@ -18,35 +18,57 @@ struct Rect {
   bool contains(int px, int py) const { return px >= x && px < x + w && py >= y && py < y + h; }
 };
 
-// ---- Reprodução screen ------------------------------------------------------
-// Every touch target is at least 40 px in both directions; no status bar (the
-// Bluetooth button shows the BT state, the − button the volume).
-// y   0..159  4 slot rows, 40 px each, full width
-// y 160..199  ⏮ ⏯ ⏭ − +  (48 x 40 each)
-// y 200..239  loop toggle | Bluetooth (BT state) | Programar (80 x 40 each)
-constexpr int kSlotRowH = 40;
-constexpr int kCtrlRowH = 40;
-constexpr int kTransportY = 4 * kSlotRowH;             // 160
-constexpr int kBottomY = kTransportY + kCtrlRowH;      // 200
+// ---- Layout rules -----------------------------------------------------------
+// Every touch target is >= 50 px high, >= 8 px from the screen edges and >= 8 px
+// from its neighbours (checked by test_ui for every screen).
+constexpr int kMargin = 8;
+constexpr int kGap = 8;
+constexpr int kMinTarget = 50;
 
-enum class PlayHit { None, Slot1, Slot2, Slot3, Slot4, Prev, PlayPause, Next, VolDown, VolUp, Loop, Bluetooth, Program };
-constexpr int kPlayTargets = 12;  // Slot1..Program
-Rect playRect(PlayHit h);         // {0,0,0,0} for None
-PlayHit playHitTest(int x, int y);
-inline int slotOf(PlayHit h) {
-  return (h >= PlayHit::Slot1 && h <= PlayHit::Slot4) ? (int)h - (int)PlayHit::Slot1 + 1 : 0;
+// ---- Views of Reprodução ------------------------------------------------------
+// Player (main) <-> Músicas / Menu; Menu -> Bluetooth. "Voltar" always returns
+// to Player, and so does every return from Programação.
+enum class View { Player, Songs, Menu, Bluetooth };
+
+// ---- Player -------------------------------------------------------------------
+// y   0.. 27  title "▶ N · nome" / "Parado" / "Nenhuma música" (not a target)
+// y  28..103  ⏮ (64x70, centred) | ⏯ (80x76) | ⏭ (64x70)
+// y 112..167  − (64x56) | "Vol NN" label | + (64x56)
+// y 176..231  Músicas (108x56) | Menu (108x56)
+constexpr int kTitleH = 28;
+enum class PlayerHit { None, Prev, PlayPause, Next, VolDown, VolUp, Songs, Menu };
+constexpr int kPlayerTargets = 7;  // Prev..Menu
+Rect playerRect(PlayerHit h);      // {0,0,0,0} for None
+Rect playerVolumeLabel();          // between − and + (not a target)
+PlayerHit playerHitTest(int x, int y);
+
+// ---- Músicas --------------------------------------------------------------------
+// 4 slot rows 164x50 at x 8, y 8/66/124/182 | "Voltar" column 52x224 at x 180.
+enum class SongsHit { None, Slot1, Slot2, Slot3, Slot4, Back };
+constexpr int kSongsTargets = 5;
+Rect songsRect(SongsHit h);
+SongsHit songsHitTest(int x, int y);
+inline int slotOf(SongsHit h) {
+  return (h >= SongsHit::Slot1 && h <= SongsHit::Slot4) ? (int)h - (int)SongsHit::Slot1 + 1 : 0;
 }
 
+// ---- Menu -----------------------------------------------------------------------
+// 2 x 2 buttons of 108x108: Bluetooth | Repetir ; Programar | Voltar
+enum class MenuHit { None, Bluetooth, Loop, Program, Back };
+constexpr int kMenuTargets = 4;
+Rect menuRect(MenuHit h);
+MenuHit menuHitTest(int x, int y);
+
 // ---- Bluetooth screen -------------------------------------------------------
-// y   0.. 31  title + scan state
-// y  32..191  4 device rows, 40 px each
-// y 192..239  Parar/Procurar | Mais | Voltar (80 x 48 each)
-constexpr int kBtHeaderH = 32;
-constexpr int kBtRowH = 40;
-constexpr int kBtRowsPerPage = 4;
-constexpr int kBtButtonsY = kBtHeaderH + kBtRowsPerPage * kBtRowH;  // 192
+// No title row (the scan state is on the Parar/Procurar button and in the
+// empty-list text) so that 3 device rows of 50 px fit:
+// y   8..173  3 device rows 224x50 (gaps 8)
+// y 182..231  Parar/Procurar | Mais | Voltar (69x50 each)
+constexpr int kBtRowH = 50;
+constexpr int kBtRowsPerPage = 3;
+constexpr int kBtButtonsY = 182;
 enum class BtButton { Scan = 0, More = 1, Back = 2 };
-Rect btRowRect(int row);           // row 0..3
+Rect btRowRect(int row);           // row 0..2
 Rect btButtonRect(BtButton b);
 struct BtHit {
   enum class Kind { None, Row, Scan, More, Back } kind;
@@ -56,8 +78,18 @@ struct BtHit {
 BtHit btHitTest(int x, int y, int rowsShown, bool moreShown);
 
 // ---- Programação screen -----------------------------------------------------
-Rect programBackRect();  // "Reprodução" button, y 184..239 full width
+Rect programBackRect();  // "Reprodução" button, 224x50 at y 182
 bool programHitTest(int x, int y);
+
+// ---- Navigation -------------------------------------------------------------
+struct Action;
+View afterPlayerTap(PlayerHit h);
+// a: what the tap did to the player (slotTapAction): a new track returns to
+// Player; pause/resume of the current track or an empty slot stays.
+View afterSongsTap(SongsHit h, const Action& a);
+View afterMenuTap(MenuHit h);
+View afterBtTap(BtHit::Kind k);
+constexpr View kViewOnEnterPlay = View::Player;
 
 // ---- Paging -----------------------------------------------------------------
 int pageCount(int items, int perPage);           // >= 1
@@ -86,6 +118,15 @@ struct Action {
   enum class Kind { None, Play, Pause, Resume } kind;
   int slot;  // for Play
 };
+
+// Player title: icon + text. "N · nome" for the current slot (Play icon while
+// playing, Pause icon while paused); "Parado" when stopped/idle;
+// "Nenhuma música" when every slot is empty.
+struct Title {
+  enum class Icon { None, Play, Pause } icon;
+  std::string text;
+};
+Title playerTitle(int current, bool playing, bool paused, const bool has[4], const std::string& currentName);
 int firstNonEmpty(const bool has[4]);  // 1..4, 0 if none
 // ⏯: playing -> Pause; paused -> Resume; idle -> Play(current if non-empty,
 // else first non-empty); nothing to play -> None.
@@ -124,6 +165,7 @@ class TouchTracker {
   void sleep() { on_ = false; }  // external blank (side button)
   void activity(uint32_t now) { last_ = now; }
   bool screenOn() const { return on_; }
+  bool down() const { return down_; }  // a press is in progress (for pressed-state feedback)
   int tapX() const { return tx_; }
   int tapY() const { return ty_; }
 

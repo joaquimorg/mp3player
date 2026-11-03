@@ -1,7 +1,10 @@
 // Pure UI logic tests. Run natively (pio test -e native -f test_ui) or on the
 // watch (pio test -e watch_test -f test_ui).
 #include <unity.h>
+#include <algorithm>
+#include <cstdio>
 #include <string>
+#include <vector>
 #include "ui_logic.h"
 
 using namespace uilogic;
@@ -10,53 +13,158 @@ void setUp() {}
 void tearDown() {}
 
 // ---- layout -------------------------------------------------------------------
-static bool inside(const Rect& r) { return r.x >= 0 && r.y >= 0 && r.x + r.w <= kScreenW && r.y + r.h <= kScreenH; }
 static bool overlap(const Rect& a, const Rect& b) {
   return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 }
+// Distance between two rects along the axis where they do not overlap; for
+// rects that share a row or a column this is the visible gap between them.
+static int gapBetween(const Rect& a, const Rect& b) {
+  int dx = std::max(b.x - (a.x + a.w), a.x - (b.x + b.w));
+  int dy = std::max(b.y - (a.y + a.h), a.y - (b.y + b.h));
+  return std::max(dx, dy);
+}
 
-void test_play_rects_inside_and_disjoint() {
-  for (int i = 1; i <= kPlayTargets; ++i) {
-    Rect a = playRect((PlayHit)i);
-    TEST_ASSERT_TRUE_MESSAGE(inside(a), "rect outside screen");
-    TEST_ASSERT_TRUE(a.w >= 40 && a.h >= 40);
-    for (int j = i + 1; j <= kPlayTargets; ++j) TEST_ASSERT_FALSE(overlap(a, playRect((PlayHit)j)));
+// Every target: >= kMinTarget px high (and wide), >= kMargin from every edge,
+// no overlaps, >= kGap from every other target.
+static void checkScreen(const std::vector<Rect>& rs, const char* name) {
+  char msg[96];
+  for (size_t i = 0; i < rs.size(); ++i) {
+    const Rect& a = rs[i];
+    snprintf(msg, sizeof msg, "%s target %u", name, (unsigned)i);
+    TEST_ASSERT_TRUE_MESSAGE(a.h >= kMinTarget && a.w >= kMinTarget, msg);
+    TEST_ASSERT_TRUE_MESSAGE(a.x >= kMargin && a.y >= kMargin, msg);
+    TEST_ASSERT_TRUE_MESSAGE(a.x + a.w <= kScreenW - kMargin && a.y + a.h <= kScreenH - kMargin, msg);
+    for (size_t j = i + 1; j < rs.size(); ++j) {
+      snprintf(msg, sizeof msg, "%s targets %u/%u", name, (unsigned)i, (unsigned)j);
+      TEST_ASSERT_FALSE_MESSAGE(overlap(a, rs[j]), msg);
+      TEST_ASSERT_TRUE_MESSAGE(gapBetween(a, rs[j]) >= kGap, msg);
+    }
   }
 }
 
-void test_play_controls_at_least_40px() {
-  for (int i = (int)PlayHit::Prev; i <= (int)PlayHit::Program; ++i) {
-    Rect a = playRect((PlayHit)i);
-    TEST_ASSERT_TRUE(a.w >= 40 && a.h >= 40);
-  }
+void test_layout_player() {
+  std::vector<Rect> rs;
+  for (int i = 1; i <= kPlayerTargets; ++i) rs.push_back(playerRect((PlayerHit)i));
+  checkScreen(rs, "player");
+  // ⏯ is the biggest transport button; volume label sits between − and +
+  Rect pp = playerRect(PlayerHit::PlayPause), pv = playerRect(PlayerHit::Prev);
+  TEST_ASSERT_TRUE(pp.h > pv.h && pp.w > pv.w);
+  Rect vl = playerVolumeLabel();
+  TEST_ASSERT_TRUE(vl.x >= playerRect(PlayerHit::VolDown).x + playerRect(PlayerHit::VolDown).w);
+  TEST_ASSERT_TRUE(vl.x + vl.w <= playerRect(PlayerHit::VolUp).x);
+  TEST_ASSERT_TRUE(playerRect(PlayerHit::VolDown).h >= 56 && playerRect(PlayerHit::Songs).h >= 56);
+  TEST_ASSERT_TRUE(playerRect(PlayerHit::Prev).y >= kTitleH && pp.y >= kTitleH);  // below the title
 }
 
-void test_play_targets_cover_whole_screen() {
-  for (int y = 0; y < kScreenH; ++y)
-    for (int x = 0; x < kScreenW; ++x) TEST_ASSERT_TRUE(playHitTest(x, y) != PlayHit::None);
-  TEST_ASSERT_TRUE(playHitTest(100, -1) == PlayHit::None);
-  TEST_ASSERT_TRUE(playHitTest(100, 240) == PlayHit::None);
-  TEST_ASSERT_TRUE(playHitTest(-1, 100) == PlayHit::None);
-  TEST_ASSERT_TRUE(playHitTest(240, 100) == PlayHit::None);
+void test_layout_songs_menu_bt_program() {
+  std::vector<Rect> rs;
+  for (int i = 1; i <= kSongsTargets; ++i) rs.push_back(songsRect((SongsHit)i));
+  checkScreen(rs, "songs");
+  rs.clear();
+  for (int i = 1; i <= kMenuTargets; ++i) rs.push_back(menuRect((MenuHit)i));
+  checkScreen(rs, "menu");
+  rs.clear();
+  for (int k = 0; k < kBtRowsPerPage; ++k) rs.push_back(btRowRect(k));
+  for (int b = 0; b < 3; ++b) rs.push_back(btButtonRect((BtButton)b));
+  checkScreen(rs, "bluetooth");
+  rs.clear();
+  rs.push_back(programBackRect());
+  checkScreen(rs, "program");
 }
 
-void test_play_hit_points() {
-  TEST_ASSERT_TRUE(playHitTest(120, 0) == PlayHit::Slot1);
-  TEST_ASSERT_TRUE(playHitTest(5, 39) == PlayHit::Slot1);
-  TEST_ASSERT_TRUE(playHitTest(5, 40) == PlayHit::Slot2);
-  TEST_ASSERT_TRUE(playHitTest(5, 119) == PlayHit::Slot3);
-  TEST_ASSERT_TRUE(playHitTest(5, 120) == PlayHit::Slot4);
-  TEST_ASSERT_TRUE(playHitTest(239, 159) == PlayHit::Slot4);
-  TEST_ASSERT_TRUE(playHitTest(0, 160) == PlayHit::Prev);
-  TEST_ASSERT_TRUE(playHitTest(72, 180) == PlayHit::PlayPause);
-  TEST_ASSERT_TRUE(playHitTest(120, 180) == PlayHit::Next);
-  TEST_ASSERT_TRUE(playHitTest(170, 180) == PlayHit::VolDown);
-  TEST_ASSERT_TRUE(playHitTest(239, 199) == PlayHit::VolUp);
-  TEST_ASSERT_TRUE(playHitTest(10, 220) == PlayHit::Loop);
-  TEST_ASSERT_TRUE(playHitTest(120, 220) == PlayHit::Bluetooth);
-  TEST_ASSERT_TRUE(playHitTest(239, 239) == PlayHit::Program);
-  TEST_ASSERT_EQUAL_INT(3, slotOf(PlayHit::Slot3));
-  TEST_ASSERT_EQUAL_INT(0, slotOf(PlayHit::Next));
+void test_player_hits() {
+  TEST_ASSERT_TRUE(playerHitTest(120, 10) == PlayerHit::None);   // title
+  TEST_ASSERT_TRUE(playerHitTest(8, 31) == PlayerHit::Prev);     // top-left corner
+  TEST_ASSERT_TRUE(playerHitTest(7, 60) == PlayerHit::None);     // margin
+  TEST_ASSERT_TRUE(playerHitTest(71, 100) == PlayerHit::Prev);   // bottom-right corner
+  TEST_ASSERT_TRUE(playerHitTest(75, 60) == PlayerHit::None);    // gap
+  TEST_ASSERT_TRUE(playerHitTest(80, 28) == PlayerHit::PlayPause);
+  TEST_ASSERT_TRUE(playerHitTest(159, 103) == PlayerHit::PlayPause);
+  TEST_ASSERT_TRUE(playerHitTest(160, 60) == PlayerHit::None);
+  TEST_ASSERT_TRUE(playerHitTest(200, 66) == PlayerHit::Next);
+  TEST_ASSERT_TRUE(playerHitTest(40, 140) == PlayerHit::VolDown);
+  TEST_ASSERT_TRUE(playerHitTest(120, 140) == PlayerHit::None);  // "Vol NN" label
+  TEST_ASSERT_TRUE(playerHitTest(200, 140) == PlayerHit::VolUp);
+  TEST_ASSERT_TRUE(playerHitTest(60, 204) == PlayerHit::Songs);
+  TEST_ASSERT_TRUE(playerHitTest(120, 204) == PlayerHit::None);  // gap 116..123
+  TEST_ASSERT_TRUE(playerHitTest(180, 204) == PlayerHit::Menu);
+  TEST_ASSERT_TRUE(playerHitTest(231, 231) == PlayerHit::Menu);
+  TEST_ASSERT_TRUE(playerHitTest(232, 232) == PlayerHit::None);
+  TEST_ASSERT_TRUE(playerHitTest(-1, -1) == PlayerHit::None);
+}
+
+void test_songs_menu_bt_hits() {
+  TEST_ASSERT_TRUE(songsHitTest(90, 8) == SongsHit::Slot1);
+  TEST_ASSERT_TRUE(songsHitTest(90, 57) == SongsHit::Slot1);
+  TEST_ASSERT_TRUE(songsHitTest(90, 60) == SongsHit::None);  // gap
+  TEST_ASSERT_TRUE(songsHitTest(90, 66) == SongsHit::Slot2);
+  TEST_ASSERT_TRUE(songsHitTest(90, 150) == SongsHit::Slot3);
+  TEST_ASSERT_TRUE(songsHitTest(171, 231) == SongsHit::Slot4);
+  TEST_ASSERT_TRUE(songsHitTest(176, 100) == SongsHit::None);  // gap to Voltar
+  TEST_ASSERT_TRUE(songsHitTest(200, 120) == SongsHit::Back);
+  TEST_ASSERT_EQUAL_INT(3, slotOf(SongsHit::Slot3));
+  TEST_ASSERT_EQUAL_INT(0, slotOf(SongsHit::Back));
+
+  TEST_ASSERT_TRUE(menuHitTest(60, 60) == MenuHit::Bluetooth);
+  TEST_ASSERT_TRUE(menuHitTest(180, 60) == MenuHit::Loop);
+  TEST_ASSERT_TRUE(menuHitTest(60, 180) == MenuHit::Program);
+  TEST_ASSERT_TRUE(menuHitTest(180, 180) == MenuHit::Back);
+  TEST_ASSERT_TRUE(menuHitTest(120, 120) == MenuHit::None);  // centre gap
+
+  BtHit h = btHitTest(100, 8, 3, false);
+  TEST_ASSERT_TRUE(h.kind == BtHit::Kind::Row);
+  TEST_ASSERT_EQUAL_INT(0, h.row);
+  h = btHitTest(100, 173, 3, false);
+  TEST_ASSERT_TRUE(h.kind == BtHit::Kind::Row);
+  TEST_ASSERT_EQUAL_INT(2, h.row);
+  TEST_ASSERT_TRUE(btHitTest(100, 173, 2, false).kind == BtHit::Kind::None);  // row not shown
+  TEST_ASSERT_TRUE(btHitTest(100, 62, 3, false).kind == BtHit::Kind::None);   // gap
+  TEST_ASSERT_TRUE(btHitTest(20, 200, 0, false).kind == BtHit::Kind::Scan);
+  TEST_ASSERT_TRUE(btHitTest(120, 200, 0, false).kind == BtHit::Kind::None);  // Mais hidden
+  TEST_ASSERT_TRUE(btHitTest(120, 200, 0, true).kind == BtHit::Kind::More);
+  TEST_ASSERT_TRUE(btHitTest(230, 231, 0, true).kind == BtHit::Kind::Back);
+
+  TEST_ASSERT_TRUE(programHitTest(120, 200));
+  TEST_ASSERT_FALSE(programHitTest(120, 100));
+}
+
+void test_navigation() {
+  const Action none{Action::Kind::None, 0}, play{Action::Kind::Play, 2}, pause{Action::Kind::Pause, 0},
+      resume{Action::Kind::Resume, 0};
+  TEST_ASSERT_TRUE(afterPlayerTap(PlayerHit::Songs) == View::Songs);
+  TEST_ASSERT_TRUE(afterPlayerTap(PlayerHit::Menu) == View::Menu);
+  TEST_ASSERT_TRUE(afterPlayerTap(PlayerHit::PlayPause) == View::Player);
+  TEST_ASSERT_TRUE(afterPlayerTap(PlayerHit::VolUp) == View::Player);
+  TEST_ASSERT_TRUE(afterSongsTap(SongsHit::Slot2, play) == View::Player);    // new track
+  TEST_ASSERT_TRUE(afterSongsTap(SongsHit::Slot1, pause) == View::Songs);    // current: toggle, stay
+  TEST_ASSERT_TRUE(afterSongsTap(SongsHit::Slot1, resume) == View::Songs);
+  TEST_ASSERT_TRUE(afterSongsTap(SongsHit::Slot3, none) == View::Songs);     // empty
+  TEST_ASSERT_TRUE(afterSongsTap(SongsHit::Back, none) == View::Player);
+  TEST_ASSERT_TRUE(afterSongsTap(SongsHit::None, none) == View::Songs);
+  TEST_ASSERT_TRUE(afterMenuTap(MenuHit::Bluetooth) == View::Bluetooth);
+  TEST_ASSERT_TRUE(afterMenuTap(MenuHit::Loop) == View::Menu);
+  TEST_ASSERT_TRUE(afterMenuTap(MenuHit::Program) == View::Menu);
+  TEST_ASSERT_TRUE(afterMenuTap(MenuHit::Back) == View::Player);
+  TEST_ASSERT_TRUE(afterBtTap(BtHit::Kind::Back) == View::Player);
+  TEST_ASSERT_TRUE(afterBtTap(BtHit::Kind::Scan) == View::Bluetooth);
+  TEST_ASSERT_TRUE(afterBtTap(BtHit::Kind::Row) == View::Bluetooth);
+  TEST_ASSERT_TRUE(kViewOnEnterPlay == View::Player);
+}
+
+void test_player_title() {
+  const bool has[4] = {true, false, true, false};
+  const bool none[4] = {false, false, false, false};
+  Title t = playerTitle(1, true, false, has, "Fado");
+  TEST_ASSERT_TRUE(t.icon == Title::Icon::Play);
+  TEST_ASSERT_EQUAL_STRING("1 \xC2\xB7 Fado", t.text.c_str());
+  t = playerTitle(3, false, true, has, "X");
+  TEST_ASSERT_TRUE(t.icon == Title::Icon::Pause);
+  TEST_ASSERT_EQUAL_STRING("3 \xC2\xB7 X", t.text.c_str());
+  t = playerTitle(3, false, false, has, "X");
+  TEST_ASSERT_TRUE(t.icon == Title::Icon::None);
+  TEST_ASSERT_EQUAL_STRING("Parado", t.text.c_str());
+  t = playerTitle(0, false, false, none, "");
+  TEST_ASSERT_EQUAL_STRING("Nenhuma m\xC3\xBAsica", t.text.c_str());
 }
 
 void test_hash_mix() {
@@ -64,37 +172,6 @@ void test_hash_mix() {
   TEST_ASSERT_TRUE(a != b);
   TEST_ASSERT_EQUAL_UINT32(a, hashMix(hashMix(kHashSeed, 1), 2));
   TEST_ASSERT_TRUE(hashMix(kHashSeed, 0) != hashMix(kHashSeed, 256));
-}
-
-void test_bt_layout_and_hits() {
-  for (int r = 0; r < kBtRowsPerPage; ++r) {
-    TEST_ASSERT_TRUE(inside(btRowRect(r)));
-    TEST_ASSERT_TRUE(btRowRect(r).h >= 40);
-  }
-  for (int b = 0; b < 3; ++b) {
-    Rect a = btButtonRect((BtButton)b);
-    TEST_ASSERT_TRUE(inside(a) && a.h >= 40 && a.w >= 40);
-    TEST_ASSERT_FALSE(overlap(a, btRowRect(kBtRowsPerPage - 1)));
-  }
-  BtHit h = btHitTest(100, 40, 4, false);
-  TEST_ASSERT_TRUE(h.kind == BtHit::Kind::Row);
-  TEST_ASSERT_EQUAL_INT(0, h.row);
-  h = btHitTest(100, 191, 4, false);
-  TEST_ASSERT_TRUE(h.kind == BtHit::Kind::Row);
-  TEST_ASSERT_EQUAL_INT(3, h.row);
-  // rows beyond the ones shown are dead
-  TEST_ASSERT_TRUE(btHitTest(100, 191, 2, false).kind == BtHit::Kind::None);
-  TEST_ASSERT_TRUE(btHitTest(10, 210, 0, false).kind == BtHit::Kind::Scan);
-  TEST_ASSERT_TRUE(btHitTest(120, 210, 0, false).kind == BtHit::Kind::None);  // Mais hidden
-  TEST_ASSERT_TRUE(btHitTest(120, 210, 0, true).kind == BtHit::Kind::More);
-  TEST_ASSERT_TRUE(btHitTest(230, 239, 0, true).kind == BtHit::Kind::Back);
-  TEST_ASSERT_TRUE(btHitTest(100, 10, 4, true).kind == BtHit::Kind::None);  // header
-}
-
-void test_program_button() {
-  TEST_ASSERT_TRUE(inside(programBackRect()));
-  TEST_ASSERT_TRUE(programHitTest(120, 200));
-  TEST_ASSERT_FALSE(programHitTest(120, 100));
 }
 
 // ---- paging -------------------------------------------------------------------
@@ -270,13 +347,13 @@ void test_touch_button_wake_and_wraparound() {
 
 int runAll() {
   UNITY_BEGIN();
-  RUN_TEST(test_play_rects_inside_and_disjoint);
-  RUN_TEST(test_play_controls_at_least_40px);
-  RUN_TEST(test_play_targets_cover_whole_screen);
+  RUN_TEST(test_layout_player);
+  RUN_TEST(test_layout_songs_menu_bt_program);
+  RUN_TEST(test_player_hits);
+  RUN_TEST(test_songs_menu_bt_hits);
+  RUN_TEST(test_navigation);
+  RUN_TEST(test_player_title);
   RUN_TEST(test_hash_mix);
-  RUN_TEST(test_play_hit_points);
-  RUN_TEST(test_bt_layout_and_hits);
-  RUN_TEST(test_program_button);
   RUN_TEST(test_paging);
   RUN_TEST(test_sanitize_cases);
   RUN_TEST(test_fit_width);

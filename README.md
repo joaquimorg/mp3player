@@ -27,26 +27,55 @@ O relógio tem dois modos e **só um de cada vez** (o Bluetooth e o Wi-Fi não f
 | **Reprodução** | Ouvir música | Bluetooth |
 | **Programação** | Enviar/apagar músicas, configurar o Wi-Fi | Wi-Fi e servidor web |
 
-Muda-se de modo com o botão **Programar** (em Reprodução) ou **Reprodução** (em Programação). A mudança demora alguns segundos ("A mudar de modo..."). Ao ligar o relógio ele arranca em Reprodução.
+Muda-se de modo com o botão **Programar** (no Menu de Reprodução) ou **Reprodução** (em Programação). A mudança demora alguns segundos ("A mudar de modo..."). Ao ligar o relógio ele arranca em Reprodução.
 
 ### Ecrãs e botões
 
-**Reprodução**
-- Quatro linhas, uma por slot, com o nome da faixa ou "Vazio". Tocar numa linha toca essa faixa; tocar na faixa que está a tocar faz pausa/retoma.
-- Botões de transporte: faixa anterior, play/pausa, faixa seguinte, volume - e + (o botão "-" mostra o volume atual, 0 a 100).
-- **Repetir faixa / todas**: repete a faixa atual ou passa de uma faixa para a seguinte em ciclo.
-- **BT: nome**: mostra o estado do Bluetooth e abre o ecrã Bluetooth.
+Em Reprodução há três ecrãs: **Leitor** (o principal), **Músicas** e **Menu**. Todos os botões têm pelo menos 50 px de altura e ficam separados uns dos outros; enquanto se carrega num botão ele muda de cor.
+
+**Leitor** (ecrã principal)
+
+```
+┌──────────────────────────────┐
+│ ▶ 2 · Nome da faixa…         │  título (não é botão)
+│ ┌──────┐ ┌────────┐ ┌──────┐ │
+│ │  ⏮   │ │   ⏯    │ │  ⏭   │ │  anterior · tocar/pausa · seguinte
+│ └──────┘ └────────┘ └──────┘ │
+│ ┌──────┐   Vol 50   ┌──────┐ │
+│ │  −   │            │  +   │ │  volume (0 a 100, de 5 em 5)
+│ └──────┘            └──────┘ │
+│ ┌───────────┐ ┌────────────┐ │
+│ │  Músicas  │ │    Menu    │ │
+│ └───────────┘ └────────────┘ │
+└──────────────────────────────┘
+```
+
+- O título mostra a faixa atual ("▶ 2 · nome" a tocar, "❚❚ 2 · nome" em pausa), "Parado" ou "Nenhuma música" se todos os slots estiverem vazios.
+- **⏯** toca/pausa (o maior botão; mostra ❚❚ enquanto toca). Parado, toca a faixa atual ou a primeira que houver.
+- **⏮ / ⏭**: faixa anterior / seguinte.
+- **− / +**: volume; fica gravado.
+
+**Músicas**
+- Quatro linhas, uma por slot, com o nome da faixa ou "Vazio"; a faixa atual tem o ▶.
+- Tocar numa faixa **toca-a e volta ao Leitor**. Tocar na faixa atual faz pausa/retoma e fica neste ecrã. Uma linha "Vazio" não faz nada.
+- **Voltar** (coluna à direita) regressa ao Leitor.
+
+**Menu** (quatro botões grandes)
+- **Bluetooth** (por baixo: `BT: nome` ou `desligado`): abre o ecrã Bluetooth.
+- **Repetir faixa / Repetir todas**: carregar alterna; o botão mostra o modo atual (repete a faixa atual, ou passa de uma faixa para a seguinte em ciclo).
 - **Programar**: passa para o modo Programação.
+- **Voltar**: regressa ao Leitor.
 
 **Bluetooth**
-- **Procurar / Parar** inicia e termina a pesquisa; os dispositivos encontrados aparecem em lista (4 por página, **Mais** muda de página).
+- Lista dos dispositivos encontrados, **3 por página** (**Mais n/N** muda de página). O dispositivo ligado fica a verde com "ligado".
+- **Procurar / Parar** inicia e termina a pesquisa (o botão fica cor de laranja enquanto procura).
 - Põe os auscultadores em modo de emparelhamento e toca no nome deles. O relógio liga-se e memoriza o dispositivo: nas vezes seguintes liga-se sozinho.
-- **Voltar** regressa à Reprodução.
+- **Voltar** regressa ao Leitor.
 
 **Programação**
 - Mostra o endereço IP do relógio (por exemplo `192.168.1.50`) ou, enquanto liga, "A ligar ao Wi-Fi...". Se a ligação à rede cair, mostra "Sem ligação Wi-Fi".
 - Durante um envio mostra "A receber...".
-- **Reprodução** volta ao modo de música.
+- **Reprodução** volta ao modo de música; o relógio volta sempre ao Leitor.
 
 ### Botão lateral e ecrã
 
@@ -89,11 +118,11 @@ A pasta `tools/pc` tem uma ferramenta que descarrega o áudio de um link do YouT
 
 ## "Toque indisponível"
 
-Se ao ligar o ecrã aparecer a faixa amarela **"Toque indisponível - desliga e liga o relógio"**, o controlador de toque não respondeu (fica por vezes preso depois de gravar firmware ou de uma reposição por software). **Remédio**: desliga o relógio por completo, mantendo o botão lateral premido cerca de 6 s, e liga-o de novo com um clique. Um simples reinício não chega.
+Se ao ligar o ecrã aparecer a faixa vermelha **"Toque indisponível - desliga e liga o relógio"**, o controlador de toque não respondeu (fica por vezes preso depois de gravar firmware ou de uma reposição por software). **Remédio**: desliga o relógio por completo, mantendo o botão lateral premido cerca de 6 s, e liga-o de novo com um clique. Um simples reinício não chega.
 
 ## Resolução de problemas
 
-- **Não ouço nada**: confirma que há um dispositivo Bluetooth emparelhado (ecrã Bluetooth) e que o botão mostra `BT: nome`. Os auscultadores não podem estar ligados a outro aparelho.
+- **Não ouço nada**: confirma que há um dispositivo Bluetooth emparelhado (ecrã Bluetooth) e que o botão Bluetooth do Menu mostra `BT: nome`. Os auscultadores não podem estar ligados a outro aparelho.
 - **Os auscultadores não aparecem na pesquisa**: põe-nos em modo de emparelhamento e carrega em **Procurar** de novo.
 - **A página não abre / a ferramenta diz que o relógio está inacessível**: o relógio tem de estar em Programação, na mesma rede Wi-Fi do PC, e o IP tem de ser o do ecrã.
 - **A ferramenta diz que o relógio está em modo de configuração Wi-Fi**: o relógio não conseguiu ligar à rede guardada e criou a rede `TWATCH-SETUP`; volta a guardar o Wi-Fi como descrito acima.
