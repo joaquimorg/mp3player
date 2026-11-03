@@ -12,10 +12,12 @@
 namespace bt {
 
 void begin();                       // idempotent
-void startScan();                   // keeps scanning until stopScan()/connectTo()
+void startScan();                   // clears the list (keeps the connected peer), then
+                                    // keeps scanning until stopScan()/connectTo()
 void stopScan();
 bool scanning();
-std::vector<String> devices();      // audio-capable names seen since begin()
+std::vector<String> devices();      // audio devices of the current search (+ connected
+                                    // peer); unnamed ones show as "aa:bb:cc:dd:ee:ff"
 uint32_t devicesVersion();          // changes whenever devices() would return something new
 void connectTo(const String& name); // saved as settings::lastBtDevice() once CONNECTED
 bool connected();
@@ -29,5 +31,12 @@ struct Stats {
   bool started;
 };
 Stats stats();
+
+#ifdef UI_DEBUG
+// Diagnostic ("btraw" console command): for `secs` seconds log EVERY inquiry
+// result (address, COD decoded, RSSI, EIR/remote name, listed or not).
+// Needs Reprodução (Bluetooth started). Returns false if Bluetooth is off.
+bool debugRawScan(uint32_t secs);
+#endif
 
 }  // namespace bt

@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include "ui_logic.h"
+#include "bt_logic.h"
 
 using namespace uilogic;
 
@@ -345,6 +346,69 @@ void test_touch_button_wake_and_wraparound() {
   TEST_ASSERT_TRUE(t.update(100001, true, 7, 8) == TouchTracker::Event::Tap);
 }
 
+// ---- Bluetooth device list (lib/btlogic) -----------------------------------
+static const uint8_t kA[6] = {0xaa, 0xbb, 0xcc, 0x00, 0x00, 0x01};
+static const uint8_t kB[6] = {0xaa, 0xbb, 0xcc, 0x00, 0x00, 0x02};
+static const uint8_t kC[6] = {0xaa, 0xbb, 0xcc, 0x00, 0x00, 0x03};
+
+void test_bt_cod_filter() {
+  using namespace btlogic;
+  TEST_ASSERT_TRUE(isListedCod(0x240404));   // headset, audio+rendering (typical earbuds)
+  TEST_ASSERT_TRUE(isListedCod(0x000418));   // headphones, NO service bits: AV major is enough
+  TEST_ASSERT_TRUE(isListedCod(0x000414));   // loudspeaker, no service bits
+  TEST_ASSERT_TRUE(isListedCod(0x0C043C));   // Samsung TV seen nearby (video display+loudspeaker)
+  TEST_ASSERT_TRUE(isListedCod(0x5A020C));   // phone with telephony/audio (library listed these too)
+  TEST_ASSERT_FALSE(isListedCod(0x000104));  // computer, no audio service
+  TEST_ASSERT_FALSE(isListedCod(0));         // unknown COD
+  TEST_ASSERT_FALSE(isListedCod(0x240405));  // invalid format bits
+  TEST_ASSERT_EQUAL_STRING("Audio/Video", majorName(0x240404));
+  TEST_ASSERT_EQUAL_STRING("headset", avMinorName(0x240404));
+  TEST_ASSERT_EQUAL_STRING("headphones", avMinorName(0x000418));
+  TEST_ASSERT_EQUAL_STRING("rendering,audio", serviceNames(0x240404).c_str());
+  TEST_ASSERT_EQUAL_STRING("aa:bb:cc:00:00:01", addrText(kA).c_str());
+}
+
+void test_bt_list_names_late_and_unnamed() {
+  btlogic::DeviceList l;
+  TEST_ASSERT_TRUE(l.upsert(kA, "", -60));            // unnamed: shown as its address
+  TEST_ASSERT_EQUAL_STRING("aa:bb:cc:00:00:01", l.names()[0].c_str());
+  TEST_ASSERT_FALSE(l.upsert(kA, "", -50));           // repeat result: no change
+  TEST_ASSERT_TRUE(l.upsert(kA, "Redmi Buds 6 Active", -50));  // name arrives later (EIR/RNR)
+  TEST_ASSERT_EQUAL_STRING("Redmi Buds 6 Active", l.names()[0].c_str());
+  TEST_ASSERT_FALSE(l.upsert(kA, "", -40));           // empty never erases a known name
+  TEST_ASSERT_EQUAL_STRING("Redmi Buds 6 Active", l.names()[0].c_str());
+  TEST_ASSERT_TRUE(l.upsert(kB, "TV", -70));
+  TEST_ASSERT_EQUAL(2, (int)l.size());
+  TEST_ASSERT_TRUE(l.findByDisplay("TV") != nullptr);
+  TEST_ASSERT_TRUE(l.findByDisplay("aa:bb:cc:00:00:01") == nullptr);  // now named
+  TEST_ASSERT_TRUE(l.findByAddr(kC) == nullptr);
+  btlogic::DeviceList small(2);
+  small.upsert(kA, "a", 0);
+  small.upsert(kB, "b", 0);
+  TEST_ASSERT_FALSE(small.upsert(kC, "c", 0));  // capped
+}
+
+void test_bt_list_cleared_on_new_search() {
+  btlogic::DeviceList l;
+  l.upsert(kA, "Buds", -50);
+  l.upsert(kB, "TV", -70);
+  l.upsert(kC, "", -80);
+  // new search while connected to B: only B stays (so it can show 'ligado')
+  TEST_ASSERT_TRUE(l.clearExcept(kB));
+  TEST_ASSERT_EQUAL(1, (int)l.size());
+  TEST_ASSERT_EQUAL_STRING("TV", l.names()[0].c_str());
+  // new search with nothing connected: empty
+  TEST_ASSERT_TRUE(l.clearExcept(nullptr));
+  TEST_ASSERT_EQUAL(0, (int)l.size());
+  TEST_ASSERT_FALSE(l.clearExcept(nullptr));
+  // repopulates, connected peer first
+  l.upsert(kB, "TV", 0);
+  l.upsert(kA, "Buds", 0);
+  std::vector<std::string> ui = uilogic::btListNames(l.names());
+  TEST_ASSERT_EQUAL(2, (int)ui.size());
+  TEST_ASSERT_EQUAL_STRING("TV", ui[0].c_str());
+}
+
 int runAll() {
   UNITY_BEGIN();
   RUN_TEST(test_layout_player);
@@ -367,6 +431,9 @@ int runAll() {
   RUN_TEST(test_touch_sleep_and_wake_swallowed);
   RUN_TEST(test_touch_hold_keeps_screen_on);
   RUN_TEST(test_touch_button_wake_and_wraparound);
+  RUN_TEST(test_bt_cod_filter);
+  RUN_TEST(test_bt_list_names_late_and_unnamed);
+  RUN_TEST(test_bt_list_cleared_on_new_search);
   return UNITY_END();
 }
 

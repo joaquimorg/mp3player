@@ -568,8 +568,12 @@ void tapBt(int id, uint32_t now) {
     bt::connectTo(s_pending);
   } else if (id == kBtIdScan) {
     kind = uilogic::BtHit::Kind::Scan;
-    if (bt::scanning()) bt::stopScan();
-    else bt::startScan();
+    if (bt::scanning()) {
+      bt::stopScan();
+    } else {
+      s_btPage = 0;  // a new search starts from an empty list
+      bt::startScan();
+    }
   } else if (id == kBtIdMore) {
     kind = uilogic::BtHit::Kind::More;
     s_btPage = uilogic::nextPage(s_btPage, (int)s_btNames.size(), uilogic::kBtRowsPerPage);
@@ -905,8 +909,15 @@ void debugSerial() {
         }
         Serial.printf("[ui] i2c bus %d:%s\n", bus, found.c_str());
       }
+    } else if (c == "btraw" || c.startsWith("btraw ")) {  // log every BT inquiry result
+      uint32_t secs = c.length() > 6 ? (uint32_t)c.substring(6).toInt() : 30;
+      if (bt::debugRawScan(secs))
+        Serial.printf("[btraw] logging every inquiry result for ~%u s (ends at the next inquiry stop)\n",
+                      (unsigned)secs);
+      else
+        Serial.println("[btraw] Bluetooth is off: switch to Reproducao first");
     } else if (c.length()) {
-      Serial.println("[ui] ? tap <x> <y> | screen | heap | scan | reboot | stall | soak");
+      Serial.println("[ui] ? tap <x> <y> | screen | heap | scan | reboot | stall | soak | btraw [secs]");
     }
   }
 }
