@@ -23,10 +23,13 @@ public partial class MainForm : Form
     // watch would look absent). Every serial task goes through UsbRun.
     readonly SemaphoreSlim usbLock = new SemaphoreSlim(1, 1);
 
+    // A serial error (port timeout, device unplugged...) inside a USB task is logged and shown as a
+    // failed operation: it must never reach the user as an "unhandled exception".
     async Task UsbRun(Action a)
     {
         await usbLock.WaitAsync();
         try { await Task.Run(a); }
+        catch (Exception e) { MusLog("Erro na ligação USB: " + e.Message); }
         finally { usbLock.Release(); }
     }
 
@@ -34,6 +37,7 @@ public partial class MainForm : Form
     {
         await usbLock.WaitAsync();
         try { return await Task.Run(f); }
+        catch (Exception e) { MusLog("Erro na ligação USB: " + e.Message); return default(T); }
         finally { usbLock.Release(); }
     }
 

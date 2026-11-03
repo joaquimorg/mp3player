@@ -7,3 +7,4 @@ app/bin/
 app/*.exe
 app/twatch-config.txt
 app/twatch-autosend.log
+app/twatch-erro.log

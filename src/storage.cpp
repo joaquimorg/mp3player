@@ -2,9 +2,20 @@
 #include "storage.h"
 #include <LittleFS.h>
 #include "slot_logic.h"
+#include <atomic>
 
 namespace storage {
 namespace {
+// LittleFS usedBytes() walks the whole file system (~1 s with ~10 MB of music), and TWATCH?/LISTA/the web
+// page all report the free space. It is cached for one "generation": every change bumps s_gen
+// (invalidateFree) and the value is recomputed at the end of the operation (warmFree), so the next
+// query is instant. Never cached while data may still be written: write() invalidates too.
+std::atomic<uint32_t> s_gen{0};
+std::atomic<uint32_t> s_cacheGen{0xFFFFFFFFu};
+std::atomic<size_t> s_cacheFree{0};
+void invalidateFree() { s_gen.fetch_add(1); }
+void warmFree();
+
 constexpr size_t kMaxNameBytes = 48;
 const char* kNamesPath = "/names.json";
 const char* kNamesTmp = "/names.tmp";
@@ -63,6 +74,7 @@ bool saveNames() {
   // No remove-then-rename fallback: rename atomically replaces the old file,
   // and a failed rename must never delete the existing names.json.
   if (!LittleFS.rename(kNamesTmp, kNamesPath)) { LittleFS.remove(kNamesTmp); return false; }
+  invalidateFree();
   return true;
 }
 
@@ -137,6 +149,8 @@ bool begin() {
   if (LittleFS.exists(kNamesTmp)) LittleFS.remove(kNamesTmp);
   gNamesLoaded = false;
   loadNames();
+  invalidateFree();
+  warmFree();
   return true;
 }
 
@@ -156,9 +170,23 @@ size_t slotSize(int slot) {
 }
 
 size_t freeBytes() {
+  uint32_t g = s_gen.load();
+  if (s_cacheGen.load() == g) return s_cacheFree.load();
   size_t total = LittleFS.totalBytes(), used = LittleFS.usedBytes();
-  return total > used ? total - used : 0;
+  size_t f = total > used ? total - used : 0;
+  if (s_gen.load() == g) {  // nothing changed while computing: keep it
+    s_cacheFree.store(f);
+    s_cacheGen.store(g);
+  }
+  return f;
 }
+
+namespace {
+// Recompute now if something changed since the cached value.
+void warmFree() {
+  if (s_cacheGen.load() != s_gen.load()) freeBytes();
+}
+}  // namespace
 
 void hasFileAll(bool out[4]) {
   for (int i = 0; i < slotlogic::kNumSlots; i++) out[i] = hasFile(i + 1);
@@ -168,11 +196,13 @@ bool remove(int slot) {
   const char* p = slotlogic::slotPath(slot);
   if (!p) return false;
   bool ok = !LittleFS.exists(p) || LittleFS.remove(p);
+  invalidateFree();
   loadNames();
   if (ok && gNames[slot - 1].length()) {
     gNames[slot - 1] = "";
     saveNames();
   }
+  warmFree();  // recompute now: the next TWATCH?/LISTA must be instant
   return ok;
 }
 
@@ -193,7 +223,7 @@ void setSlotName(int slot, const String& name) {
   if (slot < 1 || slot > slotlogic::kNumSlots) return;
   loadNames();
   gNames[slot - 1] = capName(name);
-  if (saveNames()) return;
+  if (saveNames()) { warmFree(); return; }
   // Full filesystem: do not leave a stale name for this slot (in RAM or in
   // names.json). Fall back to the default "Faixa N" and make the stored file agree:
   // dropping names.json frees its blocks, then the remaining names are rewritten.
@@ -206,6 +236,8 @@ void setSlotName(int slot, const String& name) {
       LittleFS.remove(kNamesPath);
     }
   }
+  invalidateFree();
+  warmFree();
 }
 
 // ---- SlotWriter ----
@@ -213,6 +245,7 @@ SlotWriter::SlotWriter(int slot) : slot_(slot) {
   tmpPath_ = tmpPathFor(slot);
   if (tmpPath_.length() == 0) { failed_ = true; done_ = true; return; }
   if (LittleFS.exists(tmpPath_)) LittleFS.remove(tmpPath_);  // stale tmp
+  invalidateFree();
   file_ = LittleFS.open(tmpPath_, "w");
   if (!file_) { failed_ = true; done_ = true; return; }
   open_ = true;
@@ -225,6 +258,7 @@ bool SlotWriter::write(const uint8_t* data, size_t len) {
   if (len == 0) return true;
   if (!data) return false;
   size_t w = file_.write(data, len);
+  invalidateFree();  // the file system changed under any cached free-space value
   if (w != len) {
     failed_ = true;  // e.g. out of space; commit() will refuse
     return false;
@@ -258,6 +292,7 @@ bool SlotWriter::commit() {
   }
   done_ = true;
   committed_ = true;
+  invalidateFree();  // the song's name is saved next (setSlotName warms the cache)
   return true;
 }
 
@@ -267,7 +302,11 @@ void SlotWriter::abort() {
     file_.close();
     open_ = false;
   }
-  if (tmpPath_.length() && LittleFS.exists(tmpPath_)) LittleFS.remove(tmpPath_);
+  if (tmpPath_.length() && LittleFS.exists(tmpPath_)) {
+    LittleFS.remove(tmpPath_);
+    invalidateFree();
+    warmFree();
+  }
   done_ = true;
 }
 

@@ -128,27 +128,23 @@ public class SerialLink : IDisposable
     // (a crashed previous session can leave the watch there; it returns to 115200 by itself in 10 s).
     public static WatchStatus FindWatch(string preferred, Action<string> log, out string portName)
     {
-        portName = null;
-        List<string> order = new List<string>();
-        if (!string.IsNullOrEmpty(preferred)) order.Add(preferred);
-        foreach (string p in PortNames()) if (!order.Contains(p)) order.Add(p);
-        foreach (string p in order)
+        return AppLogic.ProbePorts(preferred, PortNames(), delegate(string p)
         {
             string err;
             using (SerialLink l = TryOpen(p, 115200, out err))
             {
-                if (l == null) { log("  " + p + ": " + err); continue; }
+                if (l == null) { log("  " + p + ": " + err); return null; }
+                l.Port.WriteTimeout = 1500;   // a dead port must not hold the search for 5 s
                 WatchStatus st = l.Hello(700);
                 if (st == null && p == preferred)
                 {
                     l.SetBaud(921600);
                     st = l.Hello(700);
                 }
-                if (st != null) { portName = p; log("  " + p + ": relógio encontrado"); return st; }
-                log("  " + p + ": não é o relógio");
+                log("  " + p + (st != null ? ": relógio encontrado" : ": não é o relógio"));
+                return st;
             }
-        }
-        return null;
+        }, log, out portName);
     }
 
     // WIFI <ssid>\t<password> -> "OK" or an error line. The password is never logged.

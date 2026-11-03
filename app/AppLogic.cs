@@ -234,6 +234,31 @@ public static class AppLogic
         return r;
     }
 
+    // Probes the serial ports one by one (the preferred one first) and returns the first watch found.
+    // A port that throws (a Bluetooth virtual COM port that times out on write, a device that was
+    // unplugged, a port in use) is logged and skipped: it must never stop the search or crash the app.
+    public static WatchStatus ProbePorts(string preferred, IEnumerable<string> all, Func<string, WatchStatus> probe,
+                                         Action<string> log, out string portName)
+    {
+        portName = null;
+        List<string> order = new List<string>();
+        if (!string.IsNullOrEmpty(preferred)) order.Add(preferred);
+        if (all != null) foreach (string p in all) if (!order.Contains(p)) order.Add(p);
+        foreach (string p in order)
+        {
+            try
+            {
+                WatchStatus st = probe(p);
+                if (st != null) { portName = p; return st; }
+            }
+            catch (Exception e)
+            {
+                log("  " + p + ": sem resposta (" + e.Message + ")");
+            }
+        }
+        return null;
+    }
+
     // Parses "OK TWATCH <ver> modo=<M> wifi=<ssid, may contain spaces> ip=<ip|-> livre=<n>".
     // The SSID is everything between "wifi=" and the LAST " ip=".
     public static WatchStatus ParseTwatch(string line)

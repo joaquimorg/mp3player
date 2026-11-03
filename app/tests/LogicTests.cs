@@ -1,5 +1,6 @@
 // Console tests for AppLogic (no UI, no hardware). Exit code 0 only when every check passes.
 using System;
+using System.Collections.Generic;
 using System.Text;
 
 public static class LogicTests
@@ -125,6 +126,34 @@ public static class LogicTests
         Eq("\"C:\\a b\\\\\"", AppLogic.QuoteArg("C:\\a b\\"), "quote trailing backslash doubled");
         Eq("\"x\\y\"", AppLogic.QuoteArg("x\\y"), "quote inner backslash kept");
         Eq("\"ab\"", AppLogic.QuoteArg("a\"b"), "quote drops inner quotes");
+
+        // Probing serial ports: a port that throws (a Bluetooth virtual COM port that times out, a device
+        // unplugged half-way) must not stop the search nor crash the app.
+        {
+            List<string> order = new List<string>();
+            string found;
+            WatchStatus good = new WatchStatus();
+            good.Version = "1.1";
+            WatchStatus r = AppLogic.ProbePorts("COM8", new string[] { "COM1", "COM8", "COM15", "COM18" },
+                delegate(string p)
+                {
+                    order.Add(p);
+                    if (p == "COM8") throw new System.IO.IOException("The semaphore timeout period has expired.");
+                    if (p == "COM18") return good;
+                    return null;
+                }, delegate(string m) { }, out found);
+            Eq("COM18", found, "probe goes on after a port that throws");
+            Eq(good, r, "probe returns the watch status");
+            Eq("COM8,COM1,COM15,COM18", string.Join(",", order.ToArray()), "preferred port first, no duplicates");
+
+            string none;
+            WatchStatus r2 = AppLogic.ProbePorts("", new string[] { "COM3", "COM4" },
+                delegate(string p) { throw new InvalidOperationException("port closed"); }, delegate(string m) { }, out none);
+            Eq(null, r2, "every port throws -> not found");
+            Eq(null, none, "no port name when not found");
+            WatchStatus r3 = AppLogic.ProbePorts(null, new string[0], delegate(string p) { return good; }, delegate(string m) { }, out none);
+            Eq(null, r3, "no ports -> not found");
+        }
 
         // LISTA reply.
         long lfree;
