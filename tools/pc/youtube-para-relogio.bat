@@ -33,6 +33,7 @@ set "SRC=%~1"
 set "SLOT=%~2"
 set "IP=%~3"
 set "APAGADO="
+set "TENT=1"
 set "LASTIP="
 if exist "%DIR%ultimo-ip.txt" set /p "LASTIP="<"%DIR%ultimo-ip.txt"
 
@@ -193,6 +194,18 @@ echo No relógio: toca em "Reprodução" para ouvir.
 goto :fim
 
 :enviomau
+rem Ligacao cortada/parada a meio (Wi-Fi do relogio fraco por momentos): o relogio mantem o
+rem slot antigo, por isso repete-se o envio inteiro (ate 3 tentativas) quando ele voltar a responder.
+set "REPETIR="
+for %%c in (7 28 52 55 56) do if "%CURLRC%"=="%%c" set "REPETIR=1"
+if not defined REPETIR goto :enviomau2
+if %TENT% GEQ 3 goto :enviomau2
+set /a TENT+=1
+echo O envio foi interrompido ^(curl código %CURLRC%^). A tentar de novo ^(tentativa %TENT% de 3^)...
+call :esperarelogio
+if errorlevel 1 goto :enviomau2
+goto :enviar
+:enviomau2
 echo ERRO: o envio falhou ^(curl código %CURLRC%^). O slot anterior mantém-se.
 type "%WORK%\err.txt" 2>nul
 echo Confirma que o relógio continua em "Programação" e na mesma rede Wi-Fi.
@@ -314,6 +327,18 @@ call "%WORK%\info.cmd"
 rem Testes: TWATCH_FAKEFREE=<bytes> simula o espaco livre; TWATCH_DRYRUN=1 nao envia nada.
 if defined TWATCH_FAKEFREE set "FREE=%TWATCH_FAKEFREE%"
 exit /b 0
+
+rem Espera ate ~90 s que o relogio volte a responder (ele larga uma ligacao morta em segundos,
+rem ou em 75 s se ela ficar aberta sem dados). 0 = responde, 1 = nao responde.
+:esperarelogio
+set "ESP=0"
+:esperarelogio2
+ping -n 6 127.0.0.1 >nul
+call :lerslots
+if not errorlevel 1 exit /b 0
+set /a ESP+=1
+if %ESP% LSS 15 goto :esperarelogio2
+exit /b 1
 
 :mostraslots
 powershell -NoProfile -ExecutionPolicy Bypass -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8; try { $j=Get-Content -Raw -Encoding UTF8 -LiteralPath ($env:TW_WORK+'\slots.json') | ConvertFrom-Json; foreach($s in $j.slots){ if($s.size -gt 0){$t=('{0,6:N0} KB  {1}' -f ($s.size/1024),$s.name)}else{$t='vazio'}; Write-Host ('  Slot {0}: {1}' -f $s.n,$t) }; Write-Host ('  Espaço livre: {0:N0} KB' -f ($j.free/1024)) } catch { Get-Content -Raw -LiteralPath ($env:TW_WORK+'\slots.json') }"

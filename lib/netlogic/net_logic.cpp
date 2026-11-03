@@ -133,4 +133,13 @@ int parseSlotNumber(const std::string& s) {
   return s[0] - '0';
 }
 
+ConnectStep connectStep(int attempt, uint32_t elapsedMs) {
+  if (elapsedMs < kConnectAttemptMs) return ConnectStep::Wait;
+  return attempt < kConnectAttempts ? ConnectStep::Retry : ConnectStep::FallbackAp;
+}
+
+bool uploadStalled(uint32_t nowMs, uint32_t lastDataMs, uint32_t limitMs) {
+  return (uint32_t)(nowMs - lastDataMs) > limitMs;
+}
+
 }  // namespace netlogic

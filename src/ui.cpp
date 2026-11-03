@@ -12,6 +12,10 @@
 #include "settings.h"
 #include "storage.h"
 #include "ui_logic.h"
+#ifdef NET_DIAG
+#include <esp_wifi.h>
+#include "netmode.h"
+#endif
 
 namespace ui {
 namespace {
@@ -924,6 +928,16 @@ void debugSerial() {
                       (unsigned)secs);
       else
         Serial.println("[btraw] Bluetooth is off: switch to Reproducao first");
+#ifdef NET_DIAG
+    } else if (c == "netdrop") {
+      netmode::debugDropUpload();
+    } else if (c.startsWith("txp ")) {  // Wi-Fi TX power in 0.25 dBm units (8..78): degrades the link on purpose
+      int8_t v = (int8_t)c.substring(4).toInt();
+      esp_err_t e = esp_wifi_set_max_tx_power(v);
+      int8_t now = 0;
+      esp_wifi_get_max_tx_power(&now);
+      Serial.printf("[diag] txp %d -> err %d, now %d\n", (int)v, (int)e, (int)now);
+#endif
     } else if (c.length()) {
       Serial.println("[ui] ? tap <x> <y> | screen | heap | scan | reboot | stall | soak | bt | btraw [secs]");
     }

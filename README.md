@@ -90,7 +90,7 @@ Em Reprodução há três ecrãs: **Leitor** (o principal), **Músicas** e **Men
 
 Na primeira vez (ou quando o relógio não consegue ligar à rede guardada, por exemplo por a palavra-passe estar errada) ele cria uma rede Wi-Fi própria:
 
-1. No relógio, toca em **Programar**. Se não houver rede guardada, ou ao fim de 15 s sem conseguir ligar, o ecrã mostra `192.168.4.1` e "Liga-te à rede Wi-Fi TWATCH-SETUP".
+1. No relógio, toca em **Programar**. Se não houver rede guardada, ou ao fim de cerca de 45 s (3 tentativas) sem conseguir ligar, o ecrã mostra `192.168.4.1` e "Liga-te à rede Wi-Fi TWATCH-SETUP".
 2. No telemóvel ou PC, liga-te à rede Wi-Fi **TWATCH-SETUP** (aberta, sem palavra-passe).
 3. Abre `http://192.168.4.1` no navegador. Escreve o nome da rede (2,4 GHz) e a palavra-passe e carrega em **Guardar e reiniciar**.
 4. O relógio reinicia, liga-se à tua rede e mostra o seu IP no ecrã de Programação.

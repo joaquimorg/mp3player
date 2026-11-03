@@ -64,13 +64,33 @@ void test_slot_number() {
   TEST_ASSERT_EQUAL_INT(0, parseSlotNumber(""));
 }
 
+void test_upload_stalled() {
+  TEST_ASSERT_FALSE(uploadStalled(1000, 1000, kUploadStallMs));
+  TEST_ASSERT_FALSE(uploadStalled(1000 + kUploadStallMs, 1000, kUploadStallMs));
+  TEST_ASSERT_TRUE(uploadStalled(1001 + kUploadStallMs, 1000, kUploadStallMs));
+  // millis() wrap-around
+  TEST_ASSERT_FALSE(uploadStalled(500, 0xFFFFFF00u, kUploadStallMs));
+  TEST_ASSERT_TRUE(uploadStalled(kUploadStallMs, 0xFFFFFF00u, kUploadStallMs));
+  // above the longest stall that was seen to recover (64 s)
+  TEST_ASSERT_TRUE(kUploadStallMs > 64000);
+}
+
+void test_connect_step() {
+  TEST_ASSERT_TRUE(connectStep(1, 0) == ConnectStep::Wait);
+  TEST_ASSERT_TRUE(connectStep(1, kConnectAttemptMs - 1) == ConnectStep::Wait);
+  TEST_ASSERT_TRUE(connectStep(1, kConnectAttemptMs) == ConnectStep::Retry);
+  TEST_ASSERT_TRUE(connectStep(kConnectAttempts - 1, kConnectAttemptMs) == ConnectStep::Retry);
+  TEST_ASSERT_TRUE(connectStep(kConnectAttempts, kConnectAttemptMs - 1) == ConnectStep::Wait);
+  TEST_ASSERT_TRUE(connectStep(kConnectAttempts, kConnectAttemptMs) == ConnectStep::FallbackAp);
+}
+
 static void runAll() {
   UNITY_BEGIN();
   RUN_TEST(test_sanitize_basic); RUN_TEST(test_sanitize_ext_case); RUN_TEST(test_sanitize_path);
   RUN_TEST(test_sanitize_ctrl_and_tags); RUN_TEST(test_sanitize_utf8_kept); RUN_TEST(test_sanitize_latin1_fallback);
   RUN_TEST(test_sanitize_cap_no_split); RUN_TEST(test_sanitize_empty); RUN_TEST(test_sanitize_trailing_space_after_cut); RUN_TEST(test_json_escape);
   RUN_TEST(test_json_error); RUN_TEST(test_slots_json); RUN_TEST(test_estimate); RUN_TEST(test_messages); RUN_TEST(test_no_space_message);
-  RUN_TEST(test_slot_number);
+  RUN_TEST(test_slot_number); RUN_TEST(test_upload_stalled); RUN_TEST(test_connect_step);
   UNITY_END();
 }
 

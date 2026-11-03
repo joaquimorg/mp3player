@@ -213,6 +213,7 @@ void checkSwitchDeadline() {
 void loop() {
   ui::loop();
   checkSwitchDeadline();
+  netmode::checkStall();
   delay(10);
 }
 

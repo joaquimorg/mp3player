@@ -1,6 +1,11 @@
 #include "netmode.h"
 #include <WiFi.h>
 #include <lwip/sockets.h>
+#ifdef NET_DIAG
+#include <esp_wifi.h>
+#include <lwip/tcpip.h>
+#include <lwip/priv/tcp_priv.h>
+#endif
 #include <WebServer.h>
 #include <uri/UriBraces.h>
 #include <atomic>
@@ -15,7 +20,6 @@
 namespace netmode {
 namespace {
 
-constexpr uint32_t kConnectTimeoutMs = 15000;
 // Requests whose Content-Length is above this can never be a valid upload: they
 // are refused immediately and the connection is dropped instead of being drained
 // (draining costs ~6 s per MB on this hardware).
@@ -26,6 +30,7 @@ const char* kSlotPrefix = "/api/slot/";
 enum class State { Off, Connecting, Sta, Ap };
 State s_state = State::Off;
 uint32_t s_t0 = 0;
+int s_attempt = 0;  // join attempt in progress (1-based)
 uint32_t s_rebootAt = 0;
 std::unique_ptr<WebServer> s_server;
 
@@ -43,13 +48,65 @@ struct Upload {
   bool committed = false;
   long contentLength = 0;
   size_t written = 0;      // bytes of file data received so far
+  uint32_t t0 = 0;         // millis() at UPLOAD_FILE_START
+  size_t nextLog = 0;      // next progress log offset
 };
 Upload s_up;
 // Mirrors "a file is being received" for other tasks (the UI) while loop() is
 // busy inside the upload.
 std::atomic<bool> s_receiving{false};
+// Stall watchdog (checkStall(), UI task): socket of the upload being received
+// (-1: none) and millis() of its last data.
+std::atomic<int> s_upFd{-1};
+std::atomic<uint32_t> s_lastData{0};
+#ifdef NET_DIAG
+std::atomic<uint32_t> s_loops{0};      // netmode::loop() calls
+std::atomic<uint32_t> s_inHandle{0};   // millis() handleClient() was entered (0: not inside)
+std::atomic<uint32_t> s_diagWritten{0};
+std::atomic<int> s_diagFd{-1};           // upload socket
+std::atomic<uint32_t> s_writeAt{0};      // millis() a flash write started (0: not inside)
+std::atomic<uint32_t> s_maxWriteMs{0};   // slowest flash write of this upload
+
+// Runs in the tcpip thread: TCP state of the port-80 connections.
+void diagPcbs(void*) {
+  for (struct tcp_pcb* p = tcp_active_pcbs; p; p = p->next) {
+    if (p->local_port != 80) continue;
+    uint32_t oo = 0;
+    for (struct tcp_seg* q = p->ooseq; q; q = q->next) oo += q->len;
+    Serial.printf("[pcb] st=%d rcv_nxt=%u rcv_wnd=%u ann=%u ooseq=%u refused=%d keep=%u tmr=%u now=%u\n", (int)p->state,
+                  (unsigned)p->rcv_nxt, (unsigned)p->rcv_wnd, (unsigned)p->rcv_ann_wnd, (unsigned)oo,
+                  p->refused_data ? (int)p->refused_data->tot_len : -1, (unsigned)p->keep_cnt_sent, (unsigned)p->tmr,
+                  (unsigned)tcp_ticks);
+  }
+}
+
+void diagTask(void*) {
+  for (;;) {
+    vTaskDelay(pdMS_TO_TICKS(2000));
+    uint32_t in = s_inHandle.load();
+    uint32_t wa = s_writeAt.load();
+    int fd = s_diagFd.load(), avail = -1;
+    if (fd >= 0 && s_receiving.load()) lwip_ioctl(fd, FIONREAD, &avail);
+    Serial.printf("[diag] t=%u loops=%u inHandle=%ums recv=%d written=%u sockAvail=%d inWrite=%ums maxWrite=%ums "
+                  "wifi=%d rssi=%d heap=%u\n",
+                  (unsigned)millis(), (unsigned)s_loops.load(), in ? (unsigned)(millis() - in) : 0u,
+                  (int)s_receiving.load(), (unsigned)s_diagWritten.load(), avail, wa ? (unsigned)(millis() - wa) : 0u,
+                  (unsigned)s_maxWriteMs.load(), (int)WiFi.status(), (int)WiFi.RSSI(), (unsigned)ESP.getFreeHeap());
+    if (s_receiving.load()) tcpip_callback(diagPcbs, nullptr);
+    static uint32_t n = 0;
+    if (n++ % 15 == 0) {
+      wifi_ps_type_t ps = WIFI_PS_NONE;
+      esp_wifi_get_ps(&ps);
+      int8_t txp = 0;
+      esp_wifi_get_max_tx_power(&txp);
+      Serial.printf("[diag] ps=%d txpower=%d\n", (int)ps, (int)txp);
+    }
+  }
+}
+#endif
 
 void resetUpload() {
+  s_upFd = -1;
   s_up.writer.reset();  // SlotWriter destructor aborts an uncommitted write
   s_up = Upload();
   s_receiving = false;
@@ -105,9 +162,16 @@ void handleUpload() {
     s_receiving = true;
     s_up.slot = slotFromUri(s_server->uri());
     s_up.contentLength = s_server->clientContentLength();
+    s_up.t0 = millis();
+    s_up.nextLog = 512 * 1024;
+    s_lastData = s_up.t0;
     // Detect a vanished peer (Wi-Fi dropped without FIN) in ~5 s instead of never.
     int on = 1, idle = 2, intvl = 1, cnt = 3;
     WiFiClient c = s_server->client();
+#ifdef NET_DIAG
+    s_diagFd = c.fd();
+    s_maxWriteMs = 0;
+#endif
     c.setSocketOption(SOL_SOCKET, SO_KEEPALIVE, &on, sizeof on);
     c.setSocketOption(IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof idle);
     c.setSocketOption(IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof intvl);
@@ -129,10 +193,12 @@ void handleUpload() {
       // the parser's next read fails and the request is dropped at once.
       int fd = c.fd();
       if (fd >= 0) lwip_shutdown(fd, SHUT_RDWR);
-    } else if (s_up.contentLength <= 0) {
-      failUpload(400, "Pedido sem tamanho (Content-Length).");
+    } else {
+      s_upFd = c.fd();  // body is read (or drained): watched by checkStall()
+      if (s_up.contentLength <= 0) failUpload(400, "Pedido sem tamanho (Content-Length).");
     }
   } else if (up.status == UPLOAD_FILE_WRITE) {
+    s_lastData = millis();  // also while draining a refused body
     if (!s_up.active || s_up.dupFile || s_up.failed || up.currentSize == 0) return;
     if (!s_up.headChecked) {
       // First chunk: validate with the real first 4 bytes BEFORE touching flash.
@@ -154,12 +220,31 @@ void handleUpload() {
       failUpload(400, "O ficheiro recebido é maior do que o anunciado.");
       return;
     }
+#ifdef NET_DIAG
+    uint32_t tw = millis();
+    s_writeAt = tw | 1;
+    bool wok = s_up.writer && s_up.writer->write(up.buf, up.currentSize);
+    s_writeAt = 0;
+    tw = millis() - tw;
+    if (tw > s_maxWriteMs.load()) s_maxWriteMs = tw;
+    if (!wok) {
+#else
     if (!s_up.writer || !s_up.writer->write(up.buf, up.currentSize)) {
+#endif
       failWrite();
       return;
     }
     s_up.written += up.currentSize;
+#ifdef NET_DIAG
+    s_diagWritten = s_up.written;
+#endif
+    if (s_up.written >= s_up.nextLog) {
+      s_up.nextLog += 512 * 1024;
+      Serial.printf("[net] upload slot %d: %u bytes in %u ms, rssi %d\n", s_up.slot, (unsigned)s_up.written,
+                    (unsigned)(millis() - s_up.t0), (int)WiFi.RSSI());
+    }
   } else if (up.status == UPLOAD_FILE_END) {
+    s_upFd = -1;  // body fully received
     if (!s_up.active || s_up.dupFile || s_up.failed) return;
     if (!s_up.headChecked) {  // no data at all: empty file
       failUpload(400, netlogic::uploadErrorMessage(slotlogic::UploadCheck::NotMp3, false));
@@ -290,6 +375,16 @@ void startAp() {
 
 void begin() {
   end();
+  static bool events = false;
+  if (!events) {
+    events = true;
+    WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t info) {
+      Serial.printf("[net] wifi disconnected, reason %u\n", (unsigned)info.wifi_sta_disconnected.reason);
+    }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+#ifdef NET_DIAG
+    xTaskCreatePinnedToCore(diagTask, "netdiag", 3072, nullptr, 2, nullptr, 0);
+#endif
+  }
   String ssid = settings::wifiSsid();
   if (ssid.isEmpty()) {
     Serial.println("[net] no saved Wi-Fi credentials");
@@ -302,8 +397,10 @@ void begin() {
   WiFi.setSleep(false);  // modem sleep adds 100-300 ms per round trip and slows uploads
   WiFi.begin(ssid.c_str(), settings::wifiPass().c_str());
   s_t0 = millis();
+  s_attempt = 1;
   s_state = State::Connecting;
-  Serial.printf("[net] connecting to saved network (timeout %u s)\n", (unsigned)(kConnectTimeoutMs / 1000));
+  Serial.printf("[net] connecting to saved network (%d attempts of %u s)\n", netlogic::kConnectAttempts,
+                (unsigned)(netlogic::kConnectAttemptMs / 1000));
 }
 
 void loop() {
@@ -314,15 +411,36 @@ void loop() {
         s_state = State::Sta;
         Serial.printf("[net] connected, http://%s/ (heap %u)\n", WiFi.localIP().toString().c_str(),
                       (unsigned)ESP.getFreeHeap());
-      } else if (millis() - s_t0 >= kConnectTimeoutMs) {
-        Serial.println("[net] connection timed out");
-        startAp();
+      } else {
+        switch (netlogic::connectStep(s_attempt, millis() - s_t0)) {
+          case netlogic::ConnectStep::Wait: break;
+          case netlogic::ConnectStep::Retry:
+            // A join that failed once (e.g. auth timeout) usually works when restarted.
+            Serial.printf("[net] connection attempt %d timed out (status %d); retrying\n", s_attempt,
+                          (int)WiFi.status());
+            WiFi.disconnect();
+            WiFi.begin(settings::wifiSsid().c_str(), settings::wifiPass().c_str());
+            s_t0 = millis();
+            ++s_attempt;
+            break;
+          case netlogic::ConnectStep::FallbackAp:
+            Serial.println("[net] connection timed out");
+            startAp();
+            break;
+        }
       }
       break;
     case State::Sta:
     case State::Ap:
       if (s_server) {
+#ifdef NET_DIAG
+        s_loops.fetch_add(1);
+        s_inHandle = millis() | 1;
+#endif
         s_server->handleClient();
+#ifdef NET_DIAG
+        s_inHandle = 0;
+#endif
         resetUpload();  // a request is fully handled (or dropped) here: never carry state over
       }
       if (s_rebootAt && (int32_t)(millis() - s_rebootAt) >= 0) ESP.restart();
@@ -359,5 +477,22 @@ String ipText() {
 bool inSetupAp() { return s_state == State::Ap; }
 bool connecting() { return s_state == State::Connecting; }
 bool uploading() { return s_receiving.load(); }
+
+#ifdef NET_DIAG
+void debugDropUpload() {  // "netdrop" console command: cut the upload connection (simulates a link failure)
+  int fd = s_upFd.load();
+  if (fd >= 0) lwip_shutdown(fd, SHUT_RDWR);
+  Serial.printf("[diag] netdrop fd %d\n", fd);
+}
+#endif
+
+void checkStall() {
+  if (s_upFd.load() < 0 || !netlogic::uploadStalled(millis(), s_lastData.load(), netlogic::kUploadStallMs)) return;
+  int fd = s_upFd.exchange(-1);
+  if (fd < 0) return;
+  Serial.printf("[net] upload stalled: no data for %u s, dropping the connection\n",
+                (unsigned)(netlogic::kUploadStallMs / 1000));
+  lwip_shutdown(fd, SHUT_RDWR);  // the body loop sees the socket closed and aborts the upload
+}
 
 }  // namespace netmode
