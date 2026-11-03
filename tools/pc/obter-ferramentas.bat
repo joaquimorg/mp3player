@@ -37,13 +37,14 @@ if exist "%DIR%yt-dlp.exe" if not defined ATUALIZAR (
   goto :ffmpeg
 )
 echo [yt-dlp] a descarregar de github.com/yt-dlp/yt-dlp ...
-curl.exe -L --fail --retry 2 --connect-timeout 20 -# -o "%WORK%\yt-dlp.exe" "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+curl.exe -L --proto =https --proto-redir =https --fail --retry 2 --connect-timeout 20 -# -o "%WORK%\yt-dlp.exe" "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
 if errorlevel 1 (
   echo ERRO: falhou o download do yt-dlp.exe. Verifica a ligação à Internet e tenta de novo.
   set "RC=2"
   goto :fim
 )
 call :tamanho "%WORK%\yt-dlp.exe" SZ
+if not defined SZ set "SZ=0"
 if %SZ% LSS 1000000 (
   echo ERRO: o yt-dlp.exe descarregado parece incompleto.
   set "RC=2"
@@ -64,7 +65,7 @@ if exist "%DIR%ffmpeg.exe" (
   goto :versoes
 )
 echo [ffmpeg] a descarregar de www.gyan.dev ^(cerca de 80 MB, pode demorar^) ...
-curl.exe -L --fail --retry 2 --connect-timeout 20 -# -o "%WORK%\ffmpeg.zip" "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+curl.exe -L --proto =https --proto-redir =https --fail --retry 2 --connect-timeout 20 -# -o "%WORK%\ffmpeg.zip" "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
 if errorlevel 1 (
   echo ERRO: falhou o download do ffmpeg. Verifica a ligação à Internet e tenta de novo.
   set "RC=3"

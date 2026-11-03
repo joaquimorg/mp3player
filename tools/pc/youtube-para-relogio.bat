@@ -2,6 +2,8 @@
 rem Converte um link do YouTube (ou um ficheiro de audio) em MP3 e envia-o para o relogio.
 rem Uso interativo: youtube-para-relogio.bat
 rem Uso por argumentos: youtube-para-relogio.bat "<link-ou-ficheiro>" <slot 1-4> <ip>
+rem Variaveis de ambiente para execucao automatica: NOPAUSE=1 (nao fazer pause no fim) e TWATCH_NOCHCP=1.
+rem O pause final so acontece em duplo clique, arrastar-e-largar ou modo interativo.
 rem Codigos de saida: 0 ok, 1 dados invalidos, 2 relogio inacessivel, 3 falha na conversao,
 rem                   4 audio demasiado longo, 5 falha no envio.
 rem Nota: nao se usa "enabledelayedexpansion" de proposito - assim "!" e "%" num link nao sao
@@ -15,6 +17,13 @@ set "WORK="
 set "MAXB=3145728"
 set "INTERATIVO="
 if "%~1"=="" set "INTERATIVO=1"
+set "CL=%CMDCMDLINE:"=%"
+set "CL2=%CL:/c=%"
+set "PAUSAR="
+if defined INTERATIVO set "PAUSAR=1"
+if not "%CL2%"=="%CL%" set "PAUSAR=1"
+if defined NOPAUSE set "PAUSAR="
+if defined TWATCH_NOCHCP set "PAUSAR="
 set "SRC=%~1"
 set "SLOT=%~2"
 set "IP=%~3"
@@ -34,8 +43,10 @@ if not defined SRC goto :srcvazio
 set "SRC=%SRC:"=%"
 if not defined SRC goto :srcvazio
 set "TIPO="
-set "P4=%SRC:~0,4%"
-if /i "%P4%"=="http" set "TIPO=url"
+set "P7=%SRC:~0,7%"
+set "P8=%SRC:~0,8%"
+if /i "%P7%"=="http://" set "TIPO=url"
+if /i "%P8%"=="https://" set "TIPO=url"
 if not defined TIPO if exist "%SRC%" set "TIPO=ficheiro"
 if not defined TIPO goto :srcmau
 if "%TIPO%"=="url" if not exist "%DIR%yt-dlp.exe" goto :semferr
@@ -77,6 +88,7 @@ if errorlevel 1 goto :ipmau
 
 rem ---------- pasta temporaria ----------
 set "WORK=%TEMP%\twatch-%RANDOM%%RANDOM%"
+set "TW_WORK=%WORK%"
 mkdir "%WORK%\dl" >nul 2>&1
 if errorlevel 1 goto :semtemp
 
@@ -142,10 +154,14 @@ rem ---------- espaco no relogio ----------
 if %SIZE% GTR %FREE% goto :semespaco
 
 :enviar
+copy /y "%MP3%" "%WORK%\up.mp3" >nul
+for %%F in ("%MP3%") do set "UPN=%%~nF"
+set "UPN=%UPN:,=%"
+set "UPN=%UPN:;=%"
 echo.
 echo A enviar %KB% KB para o slot %SLOT%. Aguarda: o envio demora cerca de 1 a 2 minutos
 echo e o relógio fica ocupado. Não desligues nem toques no relógio.
-curl.exe -sS -# --connect-timeout 10 -m 900 -H "Expect:" -F "file=@%MP3%" -o "%WORK%\resp.json" -w "%%{http_code}" "http://%IP%/api/slot/%SLOT%" > "%WORK%\code.txt" 2> "%WORK%\err.txt"
+curl.exe -sS -# --connect-timeout 10 -m 900 -H "Expect:" -F "file=@%WORK%\up.mp3;filename=%UPN%.mp3" -o "%WORK%\resp.json" -w "%%{http_code}" "http://%IP%/api/slot/%SLOT%" > "%WORK%\code.txt" 2> "%WORK%\err.txt"
 set "CURLRC=%ERRORLEVEL%"
 echo.
 if not "%CURLRC%"=="0" goto :enviomau
@@ -234,7 +250,7 @@ set "RC=2" & goto :fim
 
 :fim
 if defined WORK if exist "%WORK%" rmdir /s /q "%WORK%" >nul 2>&1
-if defined INTERATIVO if not defined NOPAUSE echo. & pause
+if defined PAUSAR echo. & pause
 endlocal & exit /b %RC%
 
 rem ======================= sub-rotinas =======================
@@ -265,19 +281,19 @@ if errorlevel 1 exit /b 1
 set "CODE=000"
 set /p "CODE="<"%WORK%\code.txt"
 if not "%CODE%"=="200" exit /b 1
-set "SL=0"
-if defined SLOT set "SL=%SLOT%"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $j=Get-Content -Raw -Encoding UTF8 -LiteralPath '%WORK%\slots.json' | ConvertFrom-Json; $o=0; foreach($s in $j.slots){ if($s.n -eq %SL%){$o=$s.size} }; Set-Content -Encoding ASCII -LiteralPath '%WORK%\info.cmd' -Value ('set FREE='+$j.free), ('set OLD='+$o) } catch { exit 1 }" >nul 2>&1
+set "TW_SL=0"
+if defined SLOT set "TW_SL=%SLOT%"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $j=Get-Content -Raw -Encoding UTF8 -LiteralPath ($env:TW_WORK+'\slots.json') | ConvertFrom-Json; $o=0; foreach($s in $j.slots){ if($s.n -eq $env:TW_SL){$o=$s.size} }; Set-Content -Encoding ASCII -LiteralPath ($env:TW_WORK+'\info.cmd') -Value ('set FREE='+[long]$j.free), ('set OLD='+[long]$o) } catch { exit 1 }" >nul 2>&1
 if errorlevel 1 exit /b 1
 call "%WORK%\info.cmd"
 exit /b 0
 
 :mostraslots
-powershell -NoProfile -ExecutionPolicy Bypass -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8; try { $j=Get-Content -Raw -Encoding UTF8 -LiteralPath '%WORK%\slots.json' | ConvertFrom-Json; foreach($s in $j.slots){ if($s.size -gt 0){$t=('{0,6:N0} KB  {1}' -f ($s.size/1024),$s.name)}else{$t='vazio'}; Write-Host ('  Slot {0}: {1}' -f $s.n,$t) }; Write-Host ('  Espaço livre: {0:N0} KB' -f ($j.free/1024)) } catch { Get-Content -Raw -LiteralPath '%WORK%\slots.json' }"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8; try { $j=Get-Content -Raw -Encoding UTF8 -LiteralPath ($env:TW_WORK+'\slots.json') | ConvertFrom-Json; foreach($s in $j.slots){ if($s.size -gt 0){$t=('{0,6:N0} KB  {1}' -f ($s.size/1024),$s.name)}else{$t='vazio'}; Write-Host ('  Slot {0}: {1}' -f $s.n,$t) }; Write-Host ('  Espaço livre: {0:N0} KB' -f ($j.free/1024)) } catch { Get-Content -Raw -LiteralPath ($env:TW_WORK+'\slots.json') }"
 exit /b 0
 
 :mostraerro
-powershell -NoProfile -ExecutionPolicy Bypass -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8; try { $j=Get-Content -Raw -Encoding UTF8 -LiteralPath '%WORK%\resp.json' | ConvertFrom-Json; Write-Host ('  ' + $j.error) } catch { Get-Content -Raw -LiteralPath '%WORK%\resp.json' }"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8; try { $j=Get-Content -Raw -Encoding UTF8 -LiteralPath ($env:TW_WORK+'\resp.json') | ConvertFrom-Json; Write-Host ('  ' + $j.error) } catch { Get-Content -Raw -LiteralPath ($env:TW_WORK+'\resp.json') }"
 exit /b 0
 
 :tamanho
