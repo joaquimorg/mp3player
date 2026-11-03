@@ -76,6 +76,17 @@ void failUpload(int code, const char* msg) {
   Serial.printf("[net] upload slot %d rejected: %s\n", s_up.slot, msg);
 }
 
+// A write/commit failure on a (nearly) full filesystem is answered like the
+// up-front NoSpace check (same message, so the PC tool and web page react to it);
+// anything else stays a generic 500. Must be called before failUpload() drops the
+// writer, because the partial tmp file still counts as used space until then.
+void failWrite() {
+  if (storage::freeBytes() < slotlogic::kFsOverhead)
+    failUpload(507, netlogic::uploadErrorMessage(slotlogic::UploadCheck::NoSpace, storage::hasFile(s_up.slot)));
+  else
+    failUpload(500, "Erro ao gravar na memória do relógio.");
+}
+
 int slotFromUri(const String& uri) {
   if (!uri.startsWith(kSlotPrefix)) return 0;
   return netlogic::parseSlotNumber(uri.substring(strlen(kSlotPrefix)).c_str());
@@ -136,7 +147,7 @@ void handleUpload() {
       return;
     }
     if (!s_up.writer || !s_up.writer->write(up.buf, up.currentSize)) {
-      failUpload(500, "Erro ao gravar na memória do relógio.");
+      failWrite();
       return;
     }
     s_up.written += up.currentSize;
@@ -147,7 +158,7 @@ void handleUpload() {
       return;
     }
     if (!s_up.writer || s_up.written == 0 || !s_up.writer->commit()) {
-      failUpload(500, "Erro ao gravar na memória do relógio.");
+      failWrite();
       return;
     }
     s_up.writer.reset();
@@ -328,7 +339,9 @@ void end() {
 
 String ipText() {
   switch (s_state) {
-    case State::Sta: return WiFi.localIP().toString();
+    case State::Sta:
+      // Link dropped (auto-reconnect pending): never show 0.0.0.0.
+      return WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : String("Sem ligação Wi-Fi");
     case State::Ap: return String("192.168.4.1 (") + kApName + ")";
     case State::Connecting: return "A ligar...";
     default: return "";

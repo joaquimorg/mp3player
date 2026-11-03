@@ -14,7 +14,11 @@ set "DIR=%~dp0"
 set "DIRNB=%DIR:~0,-1%"
 set "RC=0"
 set "WORK="
-set "MAXB=3145728"
+rem Limite por slot: 3 MB (3.000.000 bytes) = slotlogic::kMaxFileSize no firmware; 4 faixas deste tamanho cabem sempre.
+set "MAXB=3000000"
+rem Folga de blocos do sistema de ficheiros do relogio (= slotlogic::kFsOverhead).
+set "OVERH=16384"
+set "MODOSETUP="
 set "INTERATIVO="
 if "%~1"=="" set "INTERATIVO=1"
 set "CL=%CMDCMDLINE:"=%"
@@ -135,10 +139,15 @@ for %%F in ("%WORK%\dl\*.mp3") do set "MP3=%%~fF"
 if not defined MP3 goto :convmau
 call :tamanho
 echo Ficheiro MP3: %KB% KB
-if %SIZE% LEQ %MAXB% goto :tamok
-
-rem demasiado grande: tentar uma vez a 64 kbps mono
-echo O áudio ocupa mais de 3 MB ^(%KB% KB^). A tentar de novo em 64 kbps mono ...
+rem demasiado grande para o limite do slot OU para o espaço livre do relógio: tentar uma vez a 64 kbps mono
+set "MOTIVO="
+if %SIZE% GTR %MAXB% set "MOTIVO=cap"
+set /a LIM=FREE-OVERH
+if %SIZE% GTR %LIM% if not defined MOTIVO set "MOTIVO=livre"
+if not defined MOTIVO goto :tamok
+set /a FREEKB=FREE/1024
+if "%MOTIVO%"=="cap" echo O áudio ocupa mais de 3 MB ^(%KB% KB^), o máximo por slot. A tentar de novo em 64 kbps mono ...
+if "%MOTIVO%"=="livre" echo O áudio ^(%KB% KB^) não cabe no espaço livre do relógio ^(%FREEKB% KB^). A tentar de novo em 64 kbps mono para ocupar menos ...
 for %%F in ("%MP3%") do set "NOME=%%~nF"
 mkdir "%WORK%\r2" >nul 2>&1
 "%DIR%ffmpeg.exe" -hide_banner -loglevel error -y -i "%MP3%" -vn -ac 1 -ar 44100 -b:a 64k "%WORK%\r2\%NOME%.mp3"
@@ -147,11 +156,13 @@ set "MP3=%WORK%\r2\%NOME%.mp3"
 if not exist "%MP3%" goto :convmau
 call :tamanho
 if %SIZE% GTR %MAXB% goto :longo
-echo Resultado: %KB% KB ^(64 kbps mono - qualidade mais baixa para caber nos 3 MB^).
+if "%MOTIVO%"=="cap" echo Resultado: %KB% KB ^(64 kbps mono - qualidade mais baixa para caber nos 3 MB^).
+if "%MOTIVO%"=="livre" echo Resultado: %KB% KB ^(64 kbps mono - qualidade mais baixa para caber no espaço livre do relógio^).
 :tamok
 
 rem ---------- espaco no relogio ----------
-if %SIZE% GTR %FREE% goto :semespaco
+set /a LIM=FREE-OVERH
+if %SIZE% GTR %LIM% goto :semespaco
 
 :enviar
 copy /y "%MP3%" "%WORK%\up.mp3" >nul
@@ -204,7 +215,8 @@ set "APAGADO=1"
 echo Slot %SLOT% apagado.
 call :lerslots
 if errorlevel 1 goto :inacessivel
-if %SIZE% GTR %FREE% goto :semespaco
+set /a LIM=FREE-OVERH
+if %SIZE% GTR %LIM% goto :semespaco
 goto :enviar
 :delmau
 echo ERRO: não consegui apagar o slot %SLOT%.
@@ -216,14 +228,21 @@ echo Para apagar um slot: curl -X DELETE http://%IP%/api/slot/N   ^(N = 1 a 4^)
 set "RC=5" & goto :fim
 
 :longo
-echo ERRO: vídeo demasiado longo. Mesmo a 64 kbps mono o ficheiro tem %KB% KB e o máximo é 3072 KB
-echo ^(cerca de 3,7 minutos a 112 kbps ou 6,5 minutos a 64 kbps^). Escolhe um vídeo mais curto.
+echo ERRO: vídeo demasiado longo. Mesmo a 64 kbps mono o ficheiro tem %KB% KB e o máximo é 2929 KB
+echo ^(cerca de 3,5 minutos a 112 kbps ou 6 minutos a 64 kbps^). Escolhe um vídeo mais curto.
 set "RC=4" & goto :fim
 
 :convmau
 echo ERRO: não foi possível obter/converter o áudio. Se for um link do YouTube, o yt-dlp pode estar
 echo desatualizado: corre "obter-ferramentas.bat atualizar" e tenta de novo.
 set "RC=3" & goto :fim
+
+:modosetup
+echo.
+echo O relógio está no modo de configuração Wi-Fi ^(rede TWATCH-SETUP^): não está ligado a nenhuma rede,
+echo por isso não aceita ficheiros. Verifica a palavra-passe do Wi-Fi: liga o PC à rede TWATCH-SETUP,
+echo abre http://192.168.4.1 e guarda de novo a rede; depois toca em "Programar" e usa o IP que aparece.
+set "RC=2" & goto :fim
 
 :slotmau
 echo ERRO: o slot deve ser 1, 2, 3 ou 4.
@@ -240,6 +259,7 @@ set "RC=1" & goto :fim
 
 :inacessivel
 echo.
+if defined MODOSETUP goto :modosetup
 echo ERRO: não consegui falar com o relógio em %IP%.
 if exist "%WORK%\err.txt" type "%WORK%\err.txt" 2>nul
 echo Verifica se:
@@ -275,12 +295,17 @@ rem GET /api/slots -> %WORK%\slots.json e variaveis FREE (bytes livres) e OLD (t
 :lerslots
 set "FREE=0"
 set "OLD=0"
+set "MODOSETUP="
 del "%WORK%\err.txt" "%WORK%\code.txt" "%WORK%\slots.json" >nul 2>&1
 curl.exe -sS --connect-timeout 5 -m 20 -H "Expect:" -o "%WORK%\slots.json" -w "%%{http_code}" "http://%IP%/api/slots" > "%WORK%\code.txt" 2> "%WORK%\err.txt"
 if errorlevel 1 exit /b 1
 set "CODE=000"
 set /p "CODE="<"%WORK%\code.txt"
 if not "%CODE%"=="200" exit /b 1
+rem Em modo TWATCH-SETUP o relogio responde 200 com a pagina HTML de configuracao em vez de JSON.
+findstr /i /c:"<!DOCTYPE" /c:"<html" "%WORK%\slots.json" >nul 2>&1
+if not errorlevel 1 set "MODOSETUP=1"
+if defined MODOSETUP exit /b 1
 set "TW_SL=0"
 if defined SLOT set "TW_SL=%SLOT%"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $j=Get-Content -Raw -Encoding UTF8 -LiteralPath ($env:TW_WORK+'\slots.json') | ConvertFrom-Json; $o=0; foreach($s in $j.slots){ if($s.n -eq $env:TW_SL){$o=$s.size} }; Set-Content -Encoding ASCII -LiteralPath ($env:TW_WORK+'\info.cmd') -Value ('set FREE='+[long]$j.free), ('set OLD='+[long]$o) } catch { exit 1 }" >nul 2>&1

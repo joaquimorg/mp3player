@@ -10,7 +10,7 @@ namespace netlogic {
 constexpr size_t kMaxNameBytes = 48;
 // Bytes of a multipart body that are not file data (boundaries + part headers),
 // subtracted from Content-Length to estimate the file size. Deliberately
-// generous: the streaming loop still enforces the hard 3 MiB cap.
+// generous: the streaming loop still enforces the hard 3 MB cap.
 constexpr size_t kMultipartSlack = 400;
 
 struct SlotInfo {

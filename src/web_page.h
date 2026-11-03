@@ -32,7 +32,7 @@ progress{width:100%;height:.7rem;margin-top:.6rem;display:none}
 <div id="slots"></div>
 </main>
 <script>
-var MAX=3*1024*1024,FREE=0;
+var MAX=3000000,OVH=16384,FREE=0;
 function fmt(n){return n>=1048576?(n/1048576).toFixed(2)+' MB':n>=1024?(n/1024).toFixed(0)+' KB':n+' B';}
 function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x!==undefined)e.textContent=x;return e;}
 function load(keepMsg){
@@ -59,7 +59,7 @@ function card(s,prev){
     var file=f.files[0];
     if(!file){say('err','Escolhe primeiro um ficheiro MP3.');return;}
     if(file.size>MAX){say('err','Ficheiro demasiado grande (máximo 3 MB).');return;}
-    if(file.size>FREE){say('err',s.size?'Sem espaço: apaga primeiro este slot e volta a enviar.':'Sem espaço livre no relógio. Apaga outro slot e tenta de novo.');return;}
+    if(file.size+OVH>FREE){say('err',s.size?'Sem espaço: apaga primeiro este slot e volta a enviar.':'Sem espaço livre no relógio. Apaga outro slot e tenta de novo.');return;}
     if(s.size&&!confirm('Substituir o conteúdo do slot '+s.n+'?'))return;
     var fd=new FormData();fd.append('file',file,file.name);
     var xhr=new XMLHttpRequest();xhr.open('POST','/api/slot/'+s.n);

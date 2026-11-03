@@ -26,13 +26,25 @@ void test_prev_all_empty_zero() { TEST_ASSERT_EQUAL_INT(0, prevSlot(3, NONE)); }
 static const uint8_t ID3[4] = {'I','D','3',0x03};
 static const uint8_t MPEG[4] = {0xFF,0xFB,0x90,0x00};
 static const uint8_t JPG[4] = {0xFF,0xD8,0xFF,0xE0};
-static const size_t MiB3 = 3u*1024u*1024u;
+static const size_t MiB3 = kMaxFileSize;
 
 void test_up_id3_ok() { TEST_ASSERT_EQUAL_INT((int)UploadCheck::Ok, (int)validateUpload(1, 1000, 2000000, ID3)); }
 void test_up_mpeg_ok() { TEST_ASSERT_EQUAL_INT((int)UploadCheck::Ok, (int)validateUpload(4, 1000, 2000000, MPEG)); }
 void test_up_jpeg_notmp3() { TEST_ASSERT_EQUAL_INT((int)UploadCheck::NotMp3, (int)validateUpload(1, 1000, 2000000, JPG)); }
 void test_up_toobig() { TEST_ASSERT_EQUAL_INT((int)UploadCheck::TooBig, (int)validateUpload(1, MiB3 + 1, 100000000, ID3)); }
-void test_up_exact_3mib_ok() { TEST_ASSERT_EQUAL_INT((int)UploadCheck::Ok, (int)validateUpload(1, MiB3, 100000000, ID3)); }
+void test_up_exact_cap_ok() { TEST_ASSERT_EQUAL_INT((int)UploadCheck::Ok, (int)validateUpload(1, MiB3, 100000000, ID3)); }
+void test_up_cap_value() { TEST_ASSERT_EQUAL_UINT32(3000000u, (uint32_t)kMaxFileSize); }
+// A file needs size + kFsOverhead free bytes.
+void test_up_space_margin_boundary() {
+  TEST_ASSERT_EQUAL_INT((int)UploadCheck::Ok, (int)validateUpload(1, 1000000, 1000000 + kFsOverhead, ID3));
+  TEST_ASSERT_EQUAL_INT((int)UploadCheck::NoSpace, (int)validateUpload(1, 1000000, 1000000 + kFsOverhead - 1, ID3));
+}
+// 0xBF0000-byte data partition, 4096-byte blocks: 4 max-size songs + 8 blocks of metadata fit.
+void test_four_max_files_fit_partition() {
+  const size_t part = 0xBF0000u, blk = 4096u;
+  size_t perFile = ((kMaxFileSize + (blk - 8) - 1) / (blk - 8)) * blk;  // conservative: 8 B pointers per block
+  TEST_ASSERT_TRUE(4 * perFile + 64 * blk <= part);
+}
 void test_up_nospace() { TEST_ASSERT_EQUAL_INT((int)UploadCheck::NoSpace, (int)validateUpload(1, 1024*1024, 500000, ID3)); }
 void test_up_badslot() { TEST_ASSERT_EQUAL_INT((int)UploadCheck::BadSlot, (int)validateUpload(0, 1000, 2000000, ID3)); TEST_ASSERT_EQUAL_INT((int)UploadCheck::BadSlot, (int)validateUpload(5, 1000, 2000000, ID3)); }
 void test_up_order() {
@@ -51,7 +63,7 @@ static void runAll() {
   RUN_TEST(test_next_repeatone_current_empty_falls_back);
   RUN_TEST(test_prev_wraps); RUN_TEST(test_prev_all_empty_zero);
   RUN_TEST(test_up_id3_ok); RUN_TEST(test_up_mpeg_ok); RUN_TEST(test_up_jpeg_notmp3); RUN_TEST(test_up_toobig);
-  RUN_TEST(test_up_exact_3mib_ok); RUN_TEST(test_up_nospace); RUN_TEST(test_up_badslot); RUN_TEST(test_up_order);
+  RUN_TEST(test_up_exact_cap_ok); RUN_TEST(test_up_cap_value); RUN_TEST(test_up_space_margin_boundary); RUN_TEST(test_four_max_files_fit_partition); RUN_TEST(test_up_nospace); RUN_TEST(test_up_badslot); RUN_TEST(test_up_order);
   RUN_TEST(test_up_zero_size_notok); RUN_TEST(test_up_ff_weak_sync_notmp3);
   UNITY_END();
 }

@@ -39,7 +39,7 @@ void jsonEscape(const String& s, String& out) {
   }
 }
 
-void saveNames() {
+bool saveNames() {
   String j = "{";
   bool first = true;
   for (int i = 0; i < slotlogic::kNumSlots; i++) {
@@ -55,13 +55,14 @@ void saveNames() {
   j += "}";
   // Write tmp then rename so a power cut can't corrupt the names file.
   File f = LittleFS.open(kNamesTmp, "w");
-  if (!f) return;
+  if (!f) return false;
   size_t w = f.print(j);
   f.close();
-  if (w != j.length()) { LittleFS.remove(kNamesTmp); return; }
+  if (w != j.length()) { LittleFS.remove(kNamesTmp); return false; }
   // No remove-then-rename fallback: rename atomically replaces the old file,
   // and a failed rename must never delete the existing names.json.
-  if (!LittleFS.rename(kNamesTmp, kNamesPath)) LittleFS.remove(kNamesTmp);
+  if (!LittleFS.rename(kNamesTmp, kNamesPath)) { LittleFS.remove(kNamesTmp); return false; }
+  return true;
 }
 
 int hexVal(char c) {
@@ -191,7 +192,19 @@ void setSlotName(int slot, const String& name) {
   if (slot < 1 || slot > slotlogic::kNumSlots) return;
   loadNames();
   gNames[slot - 1] = capName(name);
-  saveNames();
+  if (saveNames()) return;
+  // Full filesystem: do not leave a stale name for this slot (in RAM or in
+  // names.json). Fall back to the default "Faixa N" and make the stored file agree:
+  // dropping names.json frees its blocks, then the remaining names are rewritten.
+  Serial.printf("[storage] names.json write failed (FS full?): slot %d falls back to 'Faixa %d'\n", slot, slot);
+  gNames[slot - 1] = "";
+  if (!saveNames()) {
+    LittleFS.remove(kNamesPath);
+    if (!saveNames()) {
+      Serial.println("[storage] names.json could not be rewritten; names are not persisted");
+      LittleFS.remove(kNamesPath);
+    }
+  }
 }
 
 // ---- SlotWriter ----
