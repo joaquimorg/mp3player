@@ -465,6 +465,18 @@ void test_bt_connect_target_by_name_or_address() {
   TEST_ASSERT_TRUE(l.findTarget("") == nullptr);
 }
 
+void test_transfer_helpers() {
+  TEST_ASSERT_EQUAL_STRING("2,1 MB", uilogic::formatMB(2200000).c_str());
+  TEST_ASSERT_EQUAL_STRING("4,3 MB", uilogic::formatMB(4430u * 1024u).c_str());
+  TEST_ASSERT_EQUAL_STRING("48 KB", uilogic::formatMB(50000).c_str());
+  TEST_ASSERT_EQUAL_INT(0, uilogic::percent(0, 0));
+  TEST_ASSERT_EQUAL_INT(50, uilogic::percent(1, 2));
+  TEST_ASSERT_EQUAL_INT(100, uilogic::percent(300, 200));
+  TEST_ASSERT_EQUAL_INT(-1, uilogic::etaSeconds(0, 100, 1000));
+  TEST_ASSERT_EQUAL_INT(10, uilogic::etaSeconds(50, 100, 10000));
+  TEST_ASSERT_EQUAL_INT(0, uilogic::etaSeconds(100, 100, 10000));
+}
+
 int runAll() {
   UNITY_BEGIN();
   RUN_TEST(test_layout_player);
@@ -493,6 +505,7 @@ int runAll() {
   RUN_TEST(test_bt_search_policy);
   RUN_TEST(test_bt_name_requests_once_per_address);
   RUN_TEST(test_bt_connect_target_by_name_or_address);
+  RUN_TEST(test_transfer_helpers);
   return UNITY_END();
 }
 

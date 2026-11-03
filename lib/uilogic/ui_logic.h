@@ -177,4 +177,11 @@ class TouchTracker {
   int tx_ = 0, ty_ = 0;
 };
 
+// ---- Transfer progress ------------------------------------------------------
+// "2,1 MB" (one decimal, comma); below 100 KB: "48 KB" (whole KB, rounded down).
+std::string formatMB(uint32_t bytes);
+int percent(uint32_t received, uint32_t total);  // 0..100; 0 when total is 0
+// Seconds left at the average rate so far; -1 when it cannot be known yet.
+int etaSeconds(uint32_t received, uint32_t total, uint32_t elapsedMs);
+
 }  // namespace uilogic

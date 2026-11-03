@@ -15,6 +15,7 @@
 #include "settings.h"
 #include "slot_logic.h"
 #include "storage.h"
+#include "transfer.h"
 #include "web_page.h"
 
 namespace netmode {
@@ -107,6 +108,8 @@ void diagTask(void*) {
 
 void resetUpload() {
   s_upFd = -1;
+  // The request ended without a verdict (peer gone, server stopped): the screen must not stay "receiving".
+  if (s_up.active) transfer::fail("Envio interrompido: a ligação foi cortada.");
   s_up.writer.reset();  // SlotWriter destructor aborts an uncommitted write
   s_up = Upload();
   s_receiving = false;
@@ -131,6 +134,7 @@ void failUpload(int code, const char* msg) {
   s_up.errCode = code;
   s_up.errMsg = msg;
   Serial.printf("[net] upload slot %d rejected: %s\n", s_up.slot, msg);
+  transfer::fail(msg);
 }
 
 // A write/commit failure on a (nearly) full filesystem is answered like the
@@ -176,6 +180,12 @@ void handleUpload() {
     c.setSocketOption(IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof idle);
     c.setSocketOption(IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof intvl);
     c.setSocketOption(IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof cnt);
+    {
+      std::string shown = netlogic::sanitizeFileName(up.filename.c_str());
+      if (shown.empty()) shown = "Faixa " + std::to_string(s_up.slot);
+      transfer::begin(transfer::Source::Wifi, s_up.slot, shown.c_str(),
+                      s_up.contentLength > 0 ? (uint32_t)s_up.contentLength : 0);
+    }
     Serial.printf("[net] upload start slot %d name '%s' content-length %ld heap %u\n", s_up.slot,
                   up.filename.c_str(), s_up.contentLength, (unsigned)ESP.getFreeHeap());
     size_t freeNow = storage::freeBytes();
@@ -235,6 +245,7 @@ void handleUpload() {
       return;
     }
     s_up.written += up.currentSize;
+    transfer::progress((uint32_t)s_up.written);
 #ifdef NET_DIAG
     s_diagWritten = s_up.written;
 #endif
@@ -256,6 +267,7 @@ void handleUpload() {
     }
     s_up.writer.reset();
     s_up.committed = true;
+    transfer::done();
     std::string name = netlogic::sanitizeFileName(up.filename.c_str());
     storage::setSlotName(s_up.slot, String(name.c_str()));  // "" -> default "Faixa N"
     Serial.printf("[net] upload slot %d committed %u bytes, name '%s', heap %u\n", s_up.slot,
@@ -263,6 +275,7 @@ void handleUpload() {
   } else if (up.status == UPLOAD_FILE_ABORTED) {
     Serial.printf("[net] upload slot %d ABORTED by client after %u bytes; old slot kept\n", s_up.slot,
                   (unsigned)s_up.written);
+    transfer::fail("Envio interrompido: a ligação foi cortada.");
     resetUpload();  // abort + remove tmp, forget everything: nobody is left to answer
   }
 }
@@ -495,6 +508,7 @@ void checkStall() {
   if (!s_upFd.compare_exchange_strong(fd, -1)) return;
   Serial.printf("[net] upload stalled: no data for %u s, dropping the connection\n",
                 (unsigned)(netlogic::kUploadStallMs / 1000));
+  transfer::fail("O envio parou (sem dados). Tenta de novo.");
   lwip_shutdown(fd, SHUT_RDWR);  // the body loop sees the socket closed and aborts the upload
 }
 

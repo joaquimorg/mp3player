@@ -11,6 +11,7 @@
 #include "player.h"
 #include "settings.h"
 #include "storage.h"
+#include "transfer.h"
 #include "ui_logic.h"
 #ifdef NET_DIAG
 #include <esp_wifi.h>
@@ -47,6 +48,13 @@ constexpr uint16_t C_GREEN = 0x5E4F;
 constexpr uint16_t C_YELLOW = 0xFEA0;
 constexpr uint16_t C_CYAN = 0x5DDF;
 constexpr uint16_t C_WARN = 0x8000;     // dark red banner
+constexpr uint16_t C_ERR = 0xFAAA;      // light red text on black (transfer failed)
+constexpr uint16_t C_BAR = 0x2BFA;      // progress bar fill
+
+// Transfer overlay (any screen): receiving while transfer::active(), then a banner.
+constexpr uint32_t kDoneBannerMs = 4000;
+constexpr uint32_t kFailBannerMs = 6000;
+constexpr uint32_t kOverlayRedrawMs = 500;  // at most 2 redraws per second while receiving
 
 // ---- state ------------------------------------------------------------------
 enum class Screen { Busy, Player, Songs, Menu, Bluetooth, Program };
@@ -73,6 +81,12 @@ bool s_dirty = true;
 uint32_t s_lastPoll = 0;
 uint32_t s_lastBtn = 0;
 uint32_t s_lastSig = 0;
+
+// Transfer overlay bookkeeping: what was drawn last (0: normal screens).
+enum class Overlay : uint8_t { None, Receiving, Done, Failed };
+Overlay s_ov = Overlay::None;
+uint32_t s_ovVer = 0;
+uint32_t s_ovAt = 0;
 
 // Button held down (pressed-state feedback): id is the screen's hit enum value.
 Screen s_pressScreen = Screen::Busy;
@@ -682,6 +696,95 @@ void redrawWidget(Screen s, int id, bool pressed) {
   pushRect(widgetRect(s, id));
 }
 
+// ---- transfer overlay ---------------------------------------------------------
+Overlay overlayFor(const transfer::Info& t, uint32_t now) {
+  switch (t.state) {
+    case transfer::State::Receiving: return Overlay::Receiving;
+    case transfer::State::Done: return now - t.endMs < kDoneBannerMs ? Overlay::Done : Overlay::None;
+    case transfer::State::Failed: return now - t.endMs < kFailBannerMs ? Overlay::Failed : Overlay::None;
+    default: return Overlay::None;
+  }
+}
+
+void drawOverlay(Overlay ov, const transfer::Info& t, uint32_t now) {
+  g->fillRect(0, 0, uilogic::kScreenW, uilogic::kScreenH, C_BG);
+  char b[64];
+  if (ov == Overlay::Receiving) {
+    queueText(Font::M, "A receber música", 120, 30, MC_DATUM, C_YELLOW, C_BG, 232, "title");
+    String who = t.slot > 0 ? String("Slot ") + t.slot + " · " + t.name : String(t.name);
+    queueText(Font::S, who, 120, 64, MC_DATUM, C_TEXT, C_BG, 224, "file");
+    int pct = uilogic::percent(t.received, t.total);
+    g->drawRoundRect(16, 88, 208, 22, 6, C_DIM);
+    int fill = 200 * pct / 100;
+    if (fill > 0) g->fillRoundRect(20, 92, fill, 14, 4, C_BAR);
+    DESC("bar %d%%", pct);
+    std::string got = uilogic::formatMB(t.received);
+    if (t.total)
+      snprintf(b, sizeof b, "%s de %s · %d%%", got.c_str(), uilogic::formatMB(t.total).c_str(), pct);
+    else
+      snprintf(b, sizeof b, "%s", got.c_str());
+    queueText(Font::M, b, 120, 134, MC_DATUM, C_TEXT, C_BG, 232, "progress");
+    int eta = uilogic::etaSeconds(t.received, t.total, now - t.startMs);
+    if (eta >= 0) {
+      if (eta < 120) snprintf(b, sizeof b, "falta cerca de %d s", eta);
+      else snprintf(b, sizeof b, "falta cerca de %d min", (eta + 30) / 60);
+      queueText(Font::S, b, 120, 164, MC_DATUM, C_DIM, C_BG, 224, "eta");
+    }
+    queueText(Font::S, "Não desligues o relógio", 120, 206, MC_DATUM, C_YELLOW, C_BG, 232, "warn");
+  } else if (ov == Overlay::Done) {
+    g->fillRoundRect(6, 70, 228, 100, 8, 0x0B04);
+    // check mark (the fonts have no U+2713)
+    for (int d = 0; d < 3; ++d) {
+      g->drawLine(104, 92 + d, 114, 102 + d, C_TEXT);
+      g->drawLine(114, 102 + d, 134, 80 + d, C_TEXT);
+    }
+    snprintf(b, sizeof b, "Recebido: %s (%s)", t.name, uilogic::formatMB(t.received).c_str());
+    useFont(Font::S);
+    std::vector<std::string> lines =
+        uilogic::wrap(uilogic::sanitize(b, hasGlyph, nullptr), 214, 3, widthOf, nullptr);
+    int y = 124 - (int)(lines.size() - 1) * 11;
+    for (auto& l : lines) {
+      queueText(Font::S, l.c_str(), 120, y, MC_DATUM, C_TEXT, 0x0B04, 0, "banner");
+      y += 22;
+    }
+  } else {
+    queueText(Font::M, "Falhou a receção", 120, 28, MC_DATUM, C_ERR, C_BG, 232, "title");
+    useFont(Font::S);
+    std::vector<std::string> lines = uilogic::wrap(uilogic::sanitize(t.msg, hasGlyph, nullptr), 224, 6, widthOf, nullptr);
+    int y = 70;
+    for (auto& l : lines) {
+      queueText(Font::S, l.c_str(), 120, y, MC_DATUM, C_ERR, C_BG, 0, "error");
+      y += 24;
+    }
+  }
+  flushText();
+  if (s_spr) s_spr->pushSprite(0, 0);
+}
+
+// Returns true when the overlay owns the screen this poll.
+bool refreshOverlay(uint32_t now) {
+  transfer::Info t = transfer::snapshot();
+  Overlay ov = overlayFor(t, now);
+  if (ov == Overlay::None) {
+    if (s_ov != Overlay::None) {  // banner over: redraw the normal screen
+      s_ov = Overlay::None;
+      s_dirty = true;
+    }
+    return false;
+  }
+  if (ov != s_ov) s_pressId = 0;  // taps are ignored from now on
+  if (ov != s_ov || (t.version != s_ovVer && now - s_ovAt >= kOverlayRedrawMs)) {
+#ifdef UI_DEBUG
+    s_desc = String("screen Transferencia\n");
+#endif
+    s_ov = ov;
+    s_ovVer = t.version;
+    s_ovAt = now;
+    drawOverlay(ov, t, now);
+  }
+  return true;
+}
+
 // ---- frame ------------------------------------------------------------------
 void loadSlots() {
   storage::hasFileAll(s_has);
@@ -712,6 +815,7 @@ void setScreen(Screen s) {
 }
 
 void refresh(uint32_t now) {
+  if (refreshOverlay(now)) return;
   Screen want;
   if (s_host.busy()) {
     want = Screen::Busy;
@@ -769,6 +873,7 @@ void onTap(int x, int y, uint32_t now) {
   Serial.printf("[ui] tap %d,%d on %s\n", x, y, screenName(s_screen));
 #endif
   if (s_host.busy()) return;  // nothing is clickable while switching
+  if (s_ov != Overlay::None || transfer::active()) return;  // taps are ignored during a transfer
   int id = widgetAt(s_screen, x, y);
   if (!id) return;
   // Immediate feedback: only this button is redrawn and pushed.
@@ -990,6 +1095,14 @@ void loop() {
     --s_inject;
   }
 #endif
+  if (transfer::active()) {  // the backlight never blanks while receiving
+    if (!s_touch.screenOn()) {
+      s_touch.wake(now);
+      backlight(true);
+    } else {
+      s_touch.activity(now);
+    }
+  }
   switch (s_touch.update(now, down, x, y)) {
     case uilogic::TouchTracker::Event::Tap: onTap(s_touch.tapX(), s_touch.tapY(), now); break;
     case uilogic::TouchTracker::Event::Wake: backlight(true); break;

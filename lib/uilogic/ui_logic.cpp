@@ -1,4 +1,5 @@
 #include "ui_logic.h"
+#include <cstdio>
 
 namespace uilogic {
 
@@ -322,6 +323,30 @@ TouchTracker::Event TouchTracker::update(uint32_t now, bool down, int x, int y) 
     return Event::Sleep;
   }
   return Event::None;
+}
+
+std::string formatMB(uint32_t bytes) {
+  char b[24];
+  if (bytes < 100u * 1024u) {
+    snprintf(b, sizeof b, "%u KB", (unsigned)(bytes / 1024u));
+  } else {
+    uint32_t tenths = (uint32_t)(((uint64_t)bytes * 10 + 524288u) / 1048576u);
+    snprintf(b, sizeof b, "%u,%u MB", (unsigned)(tenths / 10), (unsigned)(tenths % 10));
+  }
+  return b;
+}
+
+int percent(uint32_t received, uint32_t total) {
+  if (total == 0) return 0;
+  uint64_t p = (uint64_t)received * 100 / total;
+  return p > 100 ? 100 : (int)p;
+}
+
+int etaSeconds(uint32_t received, uint32_t total, uint32_t elapsedMs) {
+  if (received == 0 || total == 0 || elapsedMs == 0) return -1;
+  if (received >= total) return 0;
+  uint64_t ms = (uint64_t)(total - received) * elapsedMs / received;
+  return (int)((ms + 500) / 1000);
 }
 
 }  // namespace uilogic
