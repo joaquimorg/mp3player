@@ -181,6 +181,8 @@ size_t freeBytes() {
   return f;
 }
 
+uint32_t generation() { return s_gen.load(); }
+
 namespace {
 // Recompute now if something changed since the cached value.
 void warmFree() {

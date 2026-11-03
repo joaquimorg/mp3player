@@ -10,6 +10,9 @@ bool begin();
 bool hasFile(int slot);
 size_t slotSize(int slot);   // 0 if absent
 size_t freeBytes();
+// Changes whenever anything in the slot storage changes (a song added, replaced or deleted, a name
+// saved), including over USB/serial while the watch is in Reprodução: the UI re-reads the slots then.
+uint32_t generation();
 void hasFileAll(bool out[4]);
 bool remove(int slot);       // deletes the file and clears its name
 fs::File openRead(int slot);

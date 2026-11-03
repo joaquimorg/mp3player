@@ -822,7 +822,10 @@ bool refreshOverlay(uint32_t now) {
 }
 
 // ---- frame ------------------------------------------------------------------
+uint32_t s_slotsGen = 0xFFFFFFFFu;  // storage::generation() when the slots were last read
+
 void loadSlots() {
+  s_slotsGen = storage::generation();
   storage::hasFileAll(s_has);
   for (int i = 0; i < 4; ++i) s_names[i] = s_has[i] ? storage::slotName(i + 1) : String();
   s_loop = settings::loopMode();
@@ -867,6 +870,13 @@ void refresh(uint32_t now) {
     want = screenOf(s_view);
   }
   setScreen(want);
+
+  // A song added/replaced/deleted behind the UI's back (USB upload or delete while in Reprodução): re-read
+  // the slots so the names and the empty/full state shown are current.
+  if (storage::generation() != s_slotsGen && s_screen != Screen::Program && s_screen != Screen::Busy) {
+    loadSlots();
+    s_dirty = true;
+  }
 
   // Cheap signature of everything shown (no String/vector built unless a
   // list really changed); redraw only when it differs.
