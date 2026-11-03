@@ -12,6 +12,22 @@
 #include "ui.h"
 #endif
 
+// Protocol rules (clients, see spec "Protocolo serie"):
+//  - Send a lone LF (backslash-n) before the first command: it ends any partial/over-long line left in the buffer
+//    (empty lines are ignored). Lines end at CR or LF. A line over 200 bytes is answered "ERRO tamanho"
+//    at once and discarded up to its terminator.
+//  - WIFI <ssid>[TAB]<pass>: the FIRST TAB separates SSID from password, so an SSID cannot contain TAB/CR/LF.
+//    settings::setWifi writes ssid and password as two separate NVS writes (not atomic).
+//  - TWATCH? reply: "wifi=" is the SSID verbatim (control chars -> '?', may contain spaces): parse it up
+//    to the LAST " ip=".
+//  - MODO replies OK when the switch is ACCEPTED, not when it is done: poll TWATCH? until modo= changes.
+//  - Under UI_DEBUG, lines that are not protocol commands go to the debug console (ui::debugCommand).
+#ifdef UI_DEBUG
+constexpr int STACK = 8192;  // the debug console runs the UI-side handlers' formatting from the UI task, but be generous
+#else
+constexpr int STACK = 5120;
+#endif
+
 namespace seriallink {
 namespace {
 
@@ -141,7 +157,7 @@ void task(void*) {
 
 void begin(const Host& host) {
   s_host = host;
-  xTaskCreatePinnedToCore(task, "serial", 5120, nullptr, 1, nullptr, 0);
+  xTaskCreatePinnedToCore(task, "serial", STACK, nullptr, 1, nullptr, 0);
 }
 
 }  // namespace seriallink

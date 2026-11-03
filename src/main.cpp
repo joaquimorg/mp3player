@@ -61,7 +61,7 @@ std::atomic<uint32_t> s_startAt{0};    // millis() the system task began it (0: 
 uint32_t s_switches = 0;
 
 void heapLine(const char* tag) {
-  DBG.printf("[heap] %s: free %u (internal %u, min internal %u, largest %u, psram %u)\n", tag,
+  DBG_PRINTF("[heap] %s: free %u (internal %u, min internal %u, largest %u, psram %u)\n", tag,
                 (unsigned)ESP.getFreeHeap(), (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
                 (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
@@ -102,7 +102,7 @@ void enterProgram() {
 #ifdef UI_DEBUG
   if (g_debugStallSwitch) {
     g_debugStallSwitch = false;
-    DBG.println("[mode] debug: stalling this switch for 40 s");
+    DBG_PRINTLN("[mode] debug: stalling this switch for 40 s");
     vTaskDelay(pdMS_TO_TICKS(40000));
   }
 #endif
@@ -123,12 +123,12 @@ void systemTask(void*) {
       uint32_t t0 = millis();
       s_startAt = nonZero(t0);
       const char* name = want == ui::Mode::Play ? "Reproducao" : "Programacao";
-      DBG.printf("[mode] switch #%u -> %s\n", (unsigned)++s_switches, name);
+      DBG_PRINTF("[mode] switch #%u -> %s\n", (unsigned)++s_switches, name);
       heapLine("before switch");
       if (want == ui::Mode::Play) enterPlay();
       else enterProgram();
       s_mode = want;
-      DBG.printf("[mode] now %s (switch took %u ms)\n", name, (unsigned)(millis() - t0));
+      DBG_PRINTF("[mode] now %s (switch took %u ms)\n", name, (unsigned)(millis() - t0));
       heapLine("after switch");
       s_requestAt = 0;
       s_startAt = 0;
@@ -150,9 +150,11 @@ void systemTask(void*) {
 ui::Mode hostMode() { return s_mode.load(); }
 bool hostBusy() { return s_busy.load(); }
 void hostRequest(ui::Mode m) {
+  // Claim busy atomically, like serialRequestMode: a request that lost the race is dropped.
+  bool expected = false;
+  if (!s_busy.compare_exchange_strong(expected, true)) return;
   s_startAt = 0;
   s_requestAt = nonZero(millis());
-  s_busy = true;
   xQueueSend(s_cmds, &m, portMAX_DELAY);
 }
 // Serial MODO request. Same path as the UI (system task, busy flag), refused while a switch is
@@ -195,13 +197,13 @@ void setup() {
   watch->begin();
   watch->tft->fillScreen(TFT_BLACK);
 
-  if (!storage::begin()) DBG.println("LittleFS mount FAILED");
+  if (!storage::begin()) DBG_PRINTLN("LittleFS mount FAILED");
   else
-    DBG.printf("LittleFS used %u of %u bytes\n", (unsigned)LittleFS.usedBytes(), (unsigned)LittleFS.totalBytes());
+    DBG_PRINTF("LittleFS used %u of %u bytes\n", (unsigned)LittleFS.usedBytes(), (unsigned)LittleFS.totalBytes());
 
   esp_reset_reason_t why = esp_reset_reason();
   bool program = uilogic::bootIntoProgram(settings::programFlag(), why == ESP_RST_SW);
-  DBG.printf("[mode] boot: reset reason %d, program flag %d -> %s\n", (int)why, settings::programFlag(),
+  DBG_PRINTF("[mode] boot: reset reason %d, program flag %d -> %s\n", (int)why, settings::programFlag(),
                 program ? "Programacao" : "Reproducao");
   heapLine("boot");
 
@@ -227,7 +229,7 @@ void checkSwitchDeadline() {
   uint32_t now = millis(), start = s_startAt.load(), req = s_requestAt.load();
   bool late = start ? now - start > kSwitchDeadlineMs : (req && now - req > kStartDeadlineMs);
   if (!late) return;
-  DBG.printf("[mode] ERROR: mode switch %s for %u s; restarting into Reproducao\n",
+  DBG_PRINTF("[mode] ERROR: mode switch %s for %u s; restarting into Reproducao\n",
                 start ? "not finished" : "not started", (unsigned)((now - (start ? start : req)) / 1000));
   settings::setProgramFlag(false);
   delay(200);

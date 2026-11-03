@@ -75,7 +75,7 @@ void diagPcbs(void*) {
     if (p->local_port != 80) continue;
     uint32_t oo = 0;
     for (struct tcp_seg* q = p->ooseq; q; q = q->next) oo += q->len;
-    DBG.printf("[pcb] st=%d rcv_nxt=%u rcv_wnd=%u ann=%u ooseq=%u refused=%d keep=%u tmr=%u now=%u\n", (int)p->state,
+    DBG_PRINTF("[pcb] st=%d rcv_nxt=%u rcv_wnd=%u ann=%u ooseq=%u refused=%d keep=%u tmr=%u now=%u\n", (int)p->state,
                   (unsigned)p->rcv_nxt, (unsigned)p->rcv_wnd, (unsigned)p->rcv_ann_wnd, (unsigned)oo,
                   p->refused_data ? (int)p->refused_data->tot_len : -1, (unsigned)p->keep_cnt_sent, (unsigned)p->tmr,
                   (unsigned)tcp_ticks);
@@ -89,7 +89,7 @@ void diagTask(void*) {
     uint32_t wa = s_writeAt.load();
     int fd = s_diagFd.load(), avail = -1;
     if (fd >= 0 && s_receiving.load()) lwip_ioctl(fd, FIONREAD, &avail);
-    DBG.printf("[diag] t=%u loops=%u inHandle=%ums recv=%d written=%u sockAvail=%d inWrite=%ums maxWrite=%ums "
+    DBG_PRINTF("[diag] t=%u loops=%u inHandle=%ums recv=%d written=%u sockAvail=%d inWrite=%ums maxWrite=%ums "
                   "wifi=%d rssi=%d heap=%u\n",
                   (unsigned)millis(), (unsigned)s_loops.load(), in ? (unsigned)(millis() - in) : 0u,
                   (int)s_receiving.load(), (unsigned)s_diagWritten.load(), avail, wa ? (unsigned)(millis() - wa) : 0u,
@@ -101,7 +101,7 @@ void diagTask(void*) {
       esp_wifi_get_ps(&ps);
       int8_t txp = 0;
       esp_wifi_get_max_tx_power(&txp);
-      DBG.printf("[diag] ps=%d txpower=%d\n", (int)ps, (int)txp);
+      DBG_PRINTF("[diag] ps=%d txpower=%d\n", (int)ps, (int)txp);
     }
   }
 }
@@ -134,7 +134,7 @@ void failUpload(int code, const char* msg) {
   s_up.writer.reset();
   s_up.errCode = code;
   s_up.errMsg = msg;
-  DBG.printf("[net] upload slot %d rejected: %s\n", s_up.slot, msg);
+  DBG_PRINTF("[net] upload slot %d rejected: %s\n", s_up.slot, msg);
   transfer::fail(msg);
 }
 
@@ -187,7 +187,7 @@ void handleUpload() {
       transfer::begin(transfer::Source::Wifi, s_up.slot, shown.c_str(),
                       (uint32_t)netlogic::estimateFileSize(s_up.contentLength));
     }
-    DBG.printf("[net] upload start slot %d name '%s' content-length %ld heap %u\n", s_up.slot,
+    DBG_PRINTF("[net] upload start slot %d name '%s' content-length %ld heap %u\n", s_up.slot,
                   up.filename.c_str(), s_up.contentLength, (unsigned)ESP.getFreeHeap());
     size_t freeNow = storage::freeBytes();
     bool badSlot = slotlogic::slotPath(s_up.slot) == nullptr;
@@ -252,7 +252,7 @@ void handleUpload() {
 #endif
     if (s_up.written >= s_up.nextLog) {
       s_up.nextLog += 512 * 1024;
-      DBG.printf("[net] upload slot %d: %u bytes in %u ms, rssi %d\n", s_up.slot, (unsigned)s_up.written,
+      DBG_PRINTF("[net] upload slot %d: %u bytes in %u ms, rssi %d\n", s_up.slot, (unsigned)s_up.written,
                     (unsigned)(millis() - s_up.t0), (int)WiFi.RSSI());
     }
   } else if (up.status == UPLOAD_FILE_END) {
@@ -270,11 +270,11 @@ void handleUpload() {
     s_up.committed = true;
     std::string name = netlogic::sanitizeFileName(up.filename.c_str());
     storage::setSlotName(s_up.slot, String(name.c_str()));  // "" -> default "Faixa N"
-    DBG.printf("[net] upload slot %d committed %u bytes, name '%s', heap %u\n", s_up.slot,
+    DBG_PRINTF("[net] upload slot %d committed %u bytes, name '%s', heap %u\n", s_up.slot,
                   (unsigned)s_up.written, name.c_str(), (unsigned)ESP.getFreeHeap());
     transfer::done();  // after commit + name: the file is complete
   } else if (up.status == UPLOAD_FILE_ABORTED) {
-    DBG.printf("[net] upload slot %d ABORTED by client after %u bytes; old slot kept\n", s_up.slot,
+    DBG_PRINTF("[net] upload slot %d ABORTED by client after %u bytes; old slot kept\n", s_up.slot,
                   (unsigned)s_up.written);
     transfer::fail("Envio interrompido: a ligação foi cortada.");
     resetUpload();  // abort + remove tmp, forget everything: nobody is left to answer
@@ -319,7 +319,7 @@ void handleDeleteSlot() {
     sendError(500, "Não foi possível apagar o slot.");
     return;
   }
-  DBG.printf("[net] slot %d deleted\n", slot);
+  DBG_PRINTF("[net] slot %d deleted\n", slot);
   sendJson(200, "{\"ok\":true}");
 }
 
@@ -347,7 +347,7 @@ void handleWifiSave() {
     return;
   }
   settings::setWifi(ssid, pass);
-  DBG.printf("[net] wifi credentials saved; rebooting\n");
+  DBG_PRINTF("[net] wifi credentials saved; rebooting\n");
   s_server->send_P(200, "text/html; charset=utf-8", kSetupSavedPage);
   s_rebootAt = millis() + 1500;
 }
@@ -382,7 +382,7 @@ void startAp() {
   delay(100);
   startServer(true);
   s_state = State::Ap;
-  DBG.printf("[net] setup AP '%s' started, page at http://%s/\n", kApName, WiFi.softAPIP().toString().c_str());
+  DBG_PRINTF("[net] setup AP '%s' started, page at http://%s/\n", kApName, WiFi.softAPIP().toString().c_str());
 }
 
 }  // namespace
@@ -393,7 +393,7 @@ void begin() {
   if (!events) {
     events = true;
     WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t info) {
-      DBG.printf("[net] wifi disconnected, reason %u\n", (unsigned)info.wifi_sta_disconnected.reason);
+      DBG_PRINTF("[net] wifi disconnected, reason %u\n", (unsigned)info.wifi_sta_disconnected.reason);
     }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
 #ifdef NET_DIAG
     xTaskCreatePinnedToCore(diagTask, "netdiag", 3072, nullptr, 2, nullptr, 0);
@@ -401,7 +401,7 @@ void begin() {
   }
   String ssid = settings::wifiSsid();
   if (ssid.isEmpty()) {
-    DBG.println("[net] no saved Wi-Fi credentials");
+    DBG_PRINTLN("[net] no saved Wi-Fi credentials");
     startAp();
     return;
   }
@@ -413,7 +413,7 @@ void begin() {
   s_t0 = millis();
   s_attempt = 1;
   s_state = State::Connecting;
-  DBG.printf("[net] connecting to saved network (%d attempts of %u s)\n", netlogic::kConnectAttempts,
+  DBG_PRINTF("[net] connecting to saved network (%d attempts of %u s)\n", netlogic::kConnectAttempts,
                 (unsigned)(netlogic::kConnectAttemptMs / 1000));
 }
 
@@ -423,14 +423,14 @@ void loop() {
       if (WiFi.status() == WL_CONNECTED) {
         startServer(false);
         s_state = State::Sta;
-        DBG.printf("[net] connected, http://%s/ (heap %u)\n", WiFi.localIP().toString().c_str(),
+        DBG_PRINTF("[net] connected, http://%s/ (heap %u)\n", WiFi.localIP().toString().c_str(),
                       (unsigned)ESP.getFreeHeap());
       } else {
         switch (netlogic::connectStep(s_attempt, millis() - s_t0)) {
           case netlogic::ConnectStep::Wait: break;
           case netlogic::ConnectStep::Retry:
             // A join that failed once (e.g. auth timeout) usually works when restarted.
-            DBG.printf("[net] connection attempt %d timed out (status %d); retrying\n", s_attempt,
+            DBG_PRINTF("[net] connection attempt %d timed out (status %d); retrying\n", s_attempt,
                           (int)WiFi.status());
             WiFi.disconnect();
             WiFi.begin(settings::wifiSsid().c_str(), settings::wifiPass().c_str());
@@ -438,7 +438,7 @@ void loop() {
             ++s_attempt;
             break;
           case netlogic::ConnectStep::FallbackAp:
-            DBG.println("[net] connection timed out");
+            DBG_PRINTLN("[net] connection timed out");
             startAp();
             break;
         }
@@ -496,7 +496,7 @@ bool uploading() { return s_receiving.load(); }
 void debugDropUpload() {  // "netdrop" console command: cut the upload connection (simulates a link failure)
   int fd = s_upFd.load();
   if (fd >= 0) lwip_shutdown(fd, SHUT_RDWR);
-  DBG.printf("[diag] netdrop fd %d\n", fd);
+  DBG_PRINTF("[diag] netdrop fd %d\n", fd);
 }
 #endif
 
@@ -507,7 +507,7 @@ void checkStall() {
   int fd = s_upFd.load();
   if (fd < 0 || !netlogic::uploadStalled(millis(), s_lastData.load(), netlogic::kUploadStallMs)) return;
   if (!s_upFd.compare_exchange_strong(fd, -1)) return;
-  DBG.printf("[net] upload stalled: no data for %u s, dropping the connection\n",
+  DBG_PRINTF("[net] upload stalled: no data for %u s, dropping the connection\n",
                 (unsigned)(netlogic::kUploadStallMs / 1000));
   transfer::fail("O envio parou (sem dados). Tenta de novo.");
   lwip_shutdown(fd, SHUT_RDWR);  // the body loop sees the socket closed and aborts the upload

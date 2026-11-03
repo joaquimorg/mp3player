@@ -2,6 +2,7 @@
 #include "ui.h"
 
 #include <LilyGoWatch.h>
+#include <atomic>
 #include <string>
 #include <vector>
 
@@ -582,7 +583,7 @@ void tapBt(int id, uint32_t now) {
   if (id >= kBtIdRow0 && id < kBtIdRow0 + uilogic::kBtRowsPerPage) {
     kind = uilogic::BtHit::Kind::Row;
     setPending(s_btList[id - kBtIdRow0].c_str(), now);
-    DBG.printf("[ui] connect to '%s'\n", s_pending.c_str());
+    DBG_PRINTF("[ui] connect to '%s'\n", s_pending.c_str());
     bt::connectTo(s_pending);
   } else if (id == kBtIdScan) {
     kind = uilogic::BtHit::Kind::Scan;
@@ -804,7 +805,7 @@ Screen screenOf(View v) {
 
 void setScreen(Screen s) {
   if (s == s_screen) return;
-  DBG.printf("[ui] screen %s -> %s\n", screenName(s_screen), screenName(s));
+  DBG_PRINTF("[ui] screen %s -> %s\n", screenName(s_screen), screenName(s));
   bool wasPlayMode = s_screen == Screen::Player || s_screen == Screen::Songs || s_screen == Screen::Menu ||
                      s_screen == Screen::Bluetooth;
   bool isPlayMode = s == Screen::Player || s == Screen::Songs || s == Screen::Menu || s == Screen::Bluetooth;
@@ -864,14 +865,14 @@ void refresh(uint32_t now) {
   }
   if (s_spr) s_spr->pushSprite(0, 0);
 #ifdef UI_DEBUG
-  DBG.printf("[ui] redraw %s %u ms, %u font loads\n", screenName(s_screen), (unsigned)(millis() - t0),
+  DBG_PRINTF("[ui] redraw %s %u ms, %u font loads\n", screenName(s_screen), (unsigned)(millis() - t0),
                 (unsigned)(s_fontLoads - loads0));
 #endif
 }
 
 void onTap(int x, int y, uint32_t now) {
 #ifdef UI_DEBUG
-  DBG.printf("[ui] tap %d,%d on %s\n", x, y, screenName(s_screen));
+  DBG_PRINTF("[ui] tap %d,%d on %s\n", x, y, screenName(s_screen));
 #endif
   if (s_host.busy()) return;  // nothing is clickable while switching
   if (s_ov != Overlay::None || transfer::active()) return;  // taps are ignored during a transfer
@@ -908,7 +909,7 @@ void backlight(bool on) {
   } else {
     s_w->closeBL();
   }
-  DBG.printf("[ui] backlight %s\n", on ? "on" : "off");
+  DBG_PRINTF("[ui] backlight %s\n", on ? "on" : "off");
 }
 
 // Side button (AXP202 PEK short press): toggles the screen.
@@ -947,7 +948,7 @@ bool readTouch(int16_t& x, int16_t& y, uint32_t now) {
   bool ok = Wire1.endTransmission() == 0;
   if (ok != s_touchOk) {
     s_touchOk = ok;
-    DBG.println(ok ? "[ui] touch controller answering again"
+    DBG_PRINTLN(ok ? "[ui] touch controller answering again"
                       : "[ui] touch controller not answering (turn the watch fully off and on)");
     if (!ok) {
       s_touchHintUntil = now + kTouchHintMs;
@@ -970,7 +971,7 @@ void soakTask(void*) {
     if ((int32_t)(millis() - nextStat) >= 0) {
       nextStat += 10000;
       player::Stats st = player::stats();
-      DBG.printf("[stat] t=%us slot=%d prod=%u pull=%u mp3fr=%u underrun=%u err=%u tracks=%u int=%u psram=%u\n",
+      DBG_PRINTF("[stat] t=%us slot=%d prod=%u pull=%u mp3fr=%u underrun=%u err=%u tracks=%u int=%u psram=%u\n",
                     (unsigned)((millis() - t0) / 1000), player::currentSlot(), (unsigned)st.framesProduced,
                     (unsigned)st.framesPulled, (unsigned)st.mp3Frames, (unsigned)st.underrunFrames,
                     (unsigned)st.decodeErrors, (unsigned)st.tracksStarted,
@@ -991,10 +992,10 @@ void debugLine(const char* line) {
       s_injY = c.substring(sp + 1).toInt();
       s_inject = 1;
     } else if (c == "screen") {
-      DBG.printf("[ui] --- %s (backlight %s, busy %d)\n%s[ui] ---\n", screenName(s_screen),
+      DBG_PRINTF("[ui] --- %s (backlight %s, busy %d)\n%s[ui] ---\n", screenName(s_screen),
                     s_touch.screenOn() ? "on" : "off", s_host.busy(), s_desc.c_str());
     } else if (c == "heap") {
-      DBG.printf("[ui] heap free %u internal %u psram %u\n", (unsigned)ESP.getFreeHeap(),
+      DBG_PRINTF("[ui] heap free %u internal %u psram %u\n", (unsigned)ESP.getFreeHeap(),
                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
     } else if (c == "soak") {
@@ -1012,23 +1013,23 @@ void debugLine(const char* line) {
           w.beginTransmission(a);
           if (w.endTransmission() == 0) found += " 0x" + String(a, HEX);
         }
-        DBG.printf("[ui] i2c bus %d:%s\n", bus, found.c_str());
+        DBG_PRINTF("[ui] i2c bus %d:%s\n", bus, found.c_str());
       }
     } else if (c == "bt") {  // search state + list
       bt::Stats st = bt::stats();
       auto d = bt::devices();
-      DBG.printf("[bt] t=%us search %s, connected %d '%s', name requests %u, %u devices:",
+      DBG_PRINTF("[bt] t=%us search %s, connected %d '%s', name requests %u, %u devices:",
                     (unsigned)(millis() / 1000), bt::scanning() ? "on" : "off", bt::connected(),
                     bt::connectedName().c_str(), (unsigned)st.nameRequests, (unsigned)d.size());
-      for (auto& n : d) DBG.printf(" '%s'", n.c_str());
-      DBG.println();
+      for (auto& n : d) DBG_PRINTF(" '%s'", n.c_str());
+      DBG_PRINTLN();
     } else if (c == "btraw" || c.startsWith("btraw ")) {  // log every BT inquiry result
       uint32_t secs = c.length() > 6 ? (uint32_t)c.substring(6).toInt() : 30;
       if (bt::debugRawScan(secs))
-        DBG.printf("[btraw] logging every inquiry result for ~%u s (ends at the next inquiry stop)\n",
+        DBG_PRINTF("[btraw] logging every inquiry result for ~%u s (ends at the next inquiry stop)\n",
                       (unsigned)secs);
       else
-        DBG.println("[btraw] Bluetooth is off: switch to Reproducao first");
+        DBG_PRINTLN("[btraw] Bluetooth is off: switch to Reproducao first");
 #ifdef NET_DIAG
     } else if (c == "netdrop") {
       netmode::debugDropUpload();
@@ -1037,10 +1038,10 @@ void debugLine(const char* line) {
       esp_err_t e = esp_wifi_set_max_tx_power(v);
       int8_t now = 0;
       esp_wifi_get_max_tx_power(&now);
-      DBG.printf("[diag] txp %d -> err %d, now %d\n", (int)v, (int)e, (int)now);
+      DBG_PRINTF("[diag] txp %d -> err %d, now %d\n", (int)v, (int)e, (int)now);
 #endif
     } else if (c.length()) {
-      DBG.println("[ui] ? tap <x> <y> | screen | heap | scan | reboot | stall | soak | bt | btraw [secs]");
+      DBG_PRINTLN("[ui] ? tap <x> <y> | screen | heap | scan | reboot | stall | soak | bt | btraw [secs]");
     }
   }
 }
@@ -1050,7 +1051,22 @@ void debugLine(const char* line) {
 
 #ifdef UI_DEBUG
 // Called from the seriallink task (it owns Serial.read) with every line that is not a protocol command.
-void debugCommand(const char* line) { debugLine(line); }
+// The line is handed over to the UI task (single slot, dropped if the previous one is still pending), so
+// the commands that read UI state (screen) run in the UI task as before.
+static char s_dbgLine[201];
+static std::atomic<bool> s_dbgPending{false};
+void debugCommand(const char* line) {
+  if (s_dbgPending.load()) return;
+  strlcpy(s_dbgLine, line, sizeof s_dbgLine);
+  s_dbgPending.store(true);
+}
+namespace {
+void debugPoll() {
+  if (!s_dbgPending.load()) return;
+  debugLine(s_dbgLine);
+  s_dbgPending.store(false);
+}
+}  // namespace
 #endif
 
 void begin(TTGOClass* watch, const Host& host) {
@@ -1061,7 +1077,7 @@ void begin(TTGOClass* watch, const Host& host) {
   if (s_spr->createSprite(uilogic::kScreenW, uilogic::kScreenH)) {
     g = s_spr;
   } else {
-    DBG.println("[ui] no memory for the screen buffer: drawing directly");
+    DBG_PRINTLN("[ui] no memory for the screen buffer: drawing directly");
     delete s_spr;
     s_spr = nullptr;
     g = s_w->tft;
@@ -1086,8 +1102,9 @@ void loop() {
   int16_t x = 0, y = 0;
   bool down = readTouch(x, y, now);
 #ifdef UI_DEBUG
+  debugPoll();
   uint32_t tt = millis() - now - tb;
-  if (tb > 20 || tt > 20) DBG.printf("[ui] slow: button %u ms, touch %u ms\n", (unsigned)tb, (unsigned)tt);
+  if (tb > 20 || tt > 20) DBG_PRINTF("[ui] slow: button %u ms, touch %u ms\n", (unsigned)tb, (unsigned)tt);
   if (s_inject > 0) {
     down = true;
     x = s_injX;

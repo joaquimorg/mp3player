@@ -88,7 +88,7 @@ class WatchSource : public BluetoothA2DPSource {
       std::string name = r.stat == ESP_BT_STATUS_SUCCESS ? std::string((const char*)r.rmt_name) : std::string();
 #ifdef UI_DEBUG
       if (s_raw.load())
-        DBG.printf("[btraw] remote name %s: %s '%s'\n", btlogic::addrText(r.bda).c_str(),
+        DBG_PRINTF("[btraw] remote name %s: %s '%s'\n", btlogic::addrText(r.bda).c_str(),
                       r.stat == ESP_BT_STATUS_SUCCESS ? "ok" : "failed", name.c_str());
 #endif
       if (!name.empty()) onName(r.bda, name, -129, false);
@@ -271,7 +271,7 @@ void rawLog(const uint8_t* a, uint32_t cod, int rssi, bool hasEir, const std::st
            *btlogic::avMinorName(cod) ? " " : "", btlogic::avMinorName(cod), btlogic::serviceNames(cod).c_str(),
            hasEir ? "yes" : "no", eirName.c_str(), bdName.c_str(), listed ? "listed as '" : cod == 0 ? "name-only result (no COD): only renames a listed device" : "NOT listed (COD)",
            listed ? disp.c_str() : "", listed ? "'" : "", lib ? "yes" : "no");
-  DBG.println(buf);
+  DBG_PRINTLN(buf);
 }
 #endif
 
@@ -358,10 +358,10 @@ void afterInquiry() {
       // Restore the previous search state only if nobody stopped/started a
       // search or connected meanwhile, and Bluetooth is not being torn down.
       if (!userActed && !s_ending.load()) s_scanWanted.store(s_rawPrevWanted);
-      DBG.printf("[btraw] done%s: %u results, %u listed, %u name requests so far; devices now:\n",
+      DBG_PRINTF("[btraw] done%s: %u results, %u listed, %u name requests so far; devices now:\n",
                     userActed ? " (search changed by the user)" : "", (unsigned)s_rawResults.load(),
                     (unsigned)s_rawListed.load(), (unsigned)s_nameRequests.load());
-      for (auto& n : bt::devices()) DBG.printf("[btraw]   '%s'\n", n.c_str());
+      for (auto& n : bt::devices()) DBG_PRINTF("[btraw]   '%s'\n", n.c_str());
     }
   }
 #endif
