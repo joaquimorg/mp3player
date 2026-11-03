@@ -443,9 +443,11 @@ void drawProgram() {
   g->fillRect(0, 0, uilogic::kScreenW, uilogic::kScreenH, C_BG);
   queueText(Font::M, "Programação", 120, 18, MC_DATUM, C_TEXT, C_BG, 0, "title");
   int ap = ip.indexOf(" (");
-  if (ip.isEmpty() || ip.startsWith("A ligar")) {
-    queueText(Font::M, ip.isEmpty() ? "A iniciar\xE2\x80\xA6" : "A ligar ao Wi-Fi\xE2\x80\xA6", 120, 68, MC_DATUM,
-              C_YELLOW, C_BG, 0, "ip");
+  bool noLink = ip.startsWith("Sem liga");  // STA link dropped (netmode::ipText)
+  if (ip.isEmpty() || noLink || ip.startsWith("A ligar")) {
+    queueText(Font::M,
+              ip.isEmpty() ? "A iniciar\xE2\x80\xA6" : noLink ? "Sem liga\xC3\xA7\xC3\xA3o Wi-Fi" : "A ligar ao Wi-Fi\xE2\x80\xA6",
+              120, 68, MC_DATUM, C_YELLOW, C_BG, 0, "ip");
   } else {
     // 30 px digits: even "255.255.255.255" fits 236 px (truncation is only a safety net).
     queueText(Font::L, ap > 0 ? ip.substring(0, ap) : ip, 120, 68, MC_DATUM, C_CYAN, C_BG, 236, "ip");
@@ -609,6 +611,27 @@ bool readTouch(int16_t& x, int16_t& y, uint32_t now) {
 }
 
 #ifdef UI_DEBUG
+// "soak": a fake A2DP consumer on core 0 (441 frames every 10 ms, like the real
+// callback) plus a [stat] line every 10 s. Needs Reprodução with a track playing.
+void soakTask(void*) {
+  static Frame fr[441];
+  uint32_t t0 = millis(), nextStat = t0 + 10000;
+  for (;;) {
+    player::pullFrames(fr, 441);
+    vTaskDelay(pdMS_TO_TICKS(10));
+    if ((int32_t)(millis() - nextStat) >= 0) {
+      nextStat += 10000;
+      player::Stats st = player::stats();
+      Serial.printf("[stat] t=%us slot=%d prod=%u pull=%u mp3fr=%u underrun=%u err=%u tracks=%u int=%u psram=%u\n",
+                    (unsigned)((millis() - t0) / 1000), player::currentSlot(), (unsigned)st.framesProduced,
+                    (unsigned)st.framesPulled, (unsigned)st.mp3Frames, (unsigned)st.underrunFrames,
+                    (unsigned)st.decodeErrors, (unsigned)st.tracksStarted,
+                    (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                    (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+    }
+  }
+}
+
 void debugSerial() {
   while (Serial.available()) {
     char ch = (char)Serial.read();
@@ -631,6 +654,9 @@ void debugSerial() {
       Serial.printf("[ui] heap free %u internal %u psram %u\n", (unsigned)ESP.getFreeHeap(),
                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+    } else if (c == "soak") {
+      static TaskHandle_t soak = nullptr;
+      if (!soak) xTaskCreatePinnedToCore(soakTask, "soak", 4096, nullptr, 1, &soak, 0);
     } else if (c == "stall") {  // the next switch to Programação hangs (tests the 25 s deadline)
       g_debugStallSwitch = true;
     } else if (c == "reboot") {  // software reset, like the one after POST /wifi
@@ -646,7 +672,7 @@ void debugSerial() {
         Serial.printf("[ui] i2c bus %d:%s\n", bus, found.c_str());
       }
     } else if (c.length()) {
-      Serial.println("[ui] ? tap <x> <y> | screen | heap | scan | reboot | stall");
+      Serial.println("[ui] ? tap <x> <y> | screen | heap | scan | reboot | stall | soak");
     }
   }
 }
