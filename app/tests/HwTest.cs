@@ -11,6 +11,16 @@ public static class HwTest
     {
         if (a.Length == 0) { Console.WriteLine("uso: hwtest find|wificheck|mode|gen|put"); return 1; }
         string port;
+        if (a[0] == "tools")
+        {
+            Console.WriteLine("yt-dlp antes: " + Tools.Version(Tools.YtDlpExe) + " | ffmpeg antes: " + Tools.Version(Tools.FfmpegExe));
+            string e1 = Tools.Have(Tools.YtDlpExe) ? null : Tools.DownloadYtDlp(Console.WriteLine);
+            string e2 = Tools.Have(Tools.FfmpegExe) ? null : Tools.DownloadFfmpeg(Console.WriteLine);
+            Console.WriteLine("erros: " + (e1 ?? "nenhum") + " | " + (e2 ?? "nenhum"));
+            Console.WriteLine("yt-dlp: " + Tools.Version(Tools.YtDlpExe));
+            Console.WriteLine("ffmpeg: " + Tools.Version(Tools.FfmpegExe));
+            return 0;
+        }
         if (a[0] == "gen")
         {
             int n = int.Parse(a[2]);

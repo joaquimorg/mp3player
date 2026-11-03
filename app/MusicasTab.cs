@@ -82,10 +82,10 @@ public partial class MainForm
         s.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         s.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
         s.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        s.Controls.Add(new Label { Text = "Ficheiro MP3:", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 0);
+        s.Controls.Add(new Label { Text = "Link ou ficheiro:", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 0);
         musFile = new TextBox { Dock = DockStyle.Fill };
         s.Controls.Add(musFile, 1, 0);
-        musPick = new Button { Text = "Escolher...", AutoSize = true };
+        musPick = new Button { Text = "Escolher ficheiro...", AutoSize = true };
         musPick.Click += MusicasPick;
         s.Controls.Add(musPick, 2, 0);
         s.Controls.Add(new Label { Text = "Slot:", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 1);
@@ -122,7 +122,7 @@ public partial class MainForm
     {
         relLog.Name = "relLog"; relStatus.Name = "relStatus"; relRefresh.Name = "relRefresh";
         musFile.Name = "musFile"; musSlot.Name = "musSlot"; musSend.Name = "musSend"; musStatus.Name = "musStatus";
-        musLog.Name = "musLog"; musList.Name = "musList"; musForceUsb.Name = "musForceUsb";
+        ferLog.Name = "ferLog"; musLog.Name = "musLog"; musList.Name = "musList"; musForceUsb.Name = "musForceUsb";
     }
 
     void MusLog(string s) { AppendLog(musLog, s); }
@@ -210,8 +210,8 @@ public partial class MainForm
     void MusicasPick(object sender, EventArgs e)
     {
         OpenFileDialog d = new OpenFileDialog();
-        d.Title = "Escolhe um ficheiro MP3";
-        d.Filter = "MP3 (*.mp3)|*.mp3|Todos os ficheiros|*.*";
+        d.Title = "Escolhe um ficheiro de áudio";
+        d.Filter = "Áudio (*.mp3;*.m4a;*.wav;*.flac;*.ogg;*.opus;*.mp4;*.webm)|*.mp3;*.m4a;*.wav;*.flac;*.ogg;*.opus;*.mp4;*.webm|Todos os ficheiros|*.*";
         if (d.ShowDialog(this) == DialogResult.OK) musFile.Text = d.FileName;
     }
 
@@ -287,31 +287,122 @@ public partial class MainForm
         Close();
     }
 
+    void SetStatus(string s)
+    {
+        BeginInvoke((Action)delegate { musStatus.Text = s; });
+    }
+
     async Task MusicasSendTask()
     {
         if (musBusy) return;
-        string path = musFile.Text.Trim().Trim('"');
-        if (!File.Exists(path))
+        string input = musFile.Text.Trim().Trim('"');
+        string url = AppLogic.NormalizeUrl(input);
+        bool isFile = url == null && File.Exists(input);
+        if (url == null && !isFile)
         {
-            MessageBox.Show(this, "Escolhe primeiro um ficheiro MP3 que exista.", "Enviar", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "Escreve um link (YouTube, por exemplo) ou escolhe um ficheiro de áudio que exista.", "Enviar",
+                            MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
-        if (!path.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase))
-        {
-            MessageBox.Show(this, "Por agora escolhe um ficheiro MP3.", "Enviar", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
+        bool isMp3 = isFile && input.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase);
+        bool needYt = url != null;
+        bool needFf = url != null || !isMp3;
+        if (!await EnsureTools(needYt, needFf)) return;
+
         int slot = musSlot.SelectedIndex + 1;
         musCts = new CancellationTokenSource();
+        CancellationToken ct = musCts.Token;
         SetBusy(true);
-        try { await DoSend(path, slot); }
+        try
+        {
+            using (Converter cv = new Converter())
+            {
+                string mp3 = null, display = null, err = null;
+                if (url != null)
+                {
+                    SetStatus("A descarregar o áudio...");
+                    MusLog("A descarregar e converter: " + url);
+                    string title = null;
+                    mp3 = await Task.Run(delegate
+                    {
+                        string t, e2;
+                        string r = cv.FromUrl(url, delegate(string m) { BeginInvoke((Action)delegate { MusLog(m); }); }, SetStatus, ct, out t, out e2);
+                        title = t; err = e2;
+                        return r;
+                    });
+                    display = title;
+                }
+                else if (isMp3)
+                {
+                    mp3 = input;
+                    display = Path.GetFileNameWithoutExtension(input);
+                }
+                else
+                {
+                    SetStatus("A converter o ficheiro para MP3...");
+                    MusLog("A converter " + Path.GetFileName(input) + " para MP3 (44,1 kHz, 112 kbps)...");
+                    mp3 = await Task.Run(delegate
+                    {
+                        string e2;
+                        string r = cv.FromFile(input, delegate(string m) { }, ct, out e2);
+                        err = e2;
+                        return r;
+                    });
+                    display = Path.GetFileNameWithoutExtension(input);
+                }
+                if (mp3 == null) { MusLog(err == "Cancelado." ? "Cancelado." : "Falhou: " + err); return; }
+
+                // Will it fit? Plan against the free space (a song already in the slot can be replaced).
+                SetStatus("A ler o relógio...");
+                if (!await LoadSlotsAsync() || musSlots == null)
+                {
+                    MessageBox.Show(this, "Não consigo falar com o relógio. Liga-o por USB (separador Relógio) ou põe-no em Programação na mesma rede Wi-Fi.",
+                                    "Enviar", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+                SlotInfo cur = musSlots[slot - 1];
+                long freeEff = musFreeBytes + (cur.Empty ? 0 : cur.Size);
+                long size = new FileInfo(mp3).Length;
+                if (AppLogic.PlanAfterFirstEncode(size, freeEff) == EncodePlan.Retry64kMono)
+                {
+                    if (!await EnsureTools(false, true)) return;
+                    MusLog("Com " + AppLogic.FormatMB(size) + " não cabe. A recodificar a 64 kbps mono...");
+                    SetStatus("A recodificar a 64 kbps mono...");
+                    string m64 = await Task.Run(delegate
+                    {
+                        string e2;
+                        string r = cv.Reencode64kMono(mp3, delegate(string m) { }, ct, out e2);
+                        err = e2;
+                        return r;
+                    });
+                    if (m64 == null) { MusLog(err == "Cancelado." ? "Cancelado." : "Falhou: " + err); return; }
+                    long size2 = new FileInfo(m64).Length;
+                    EncodePlan p2 = AppLogic.PlanAfterRetry(size2, freeEff);
+                    if (p2 == EncodePlan.TooLarge)
+                    {
+                        MessageBox.Show(this, "A música é demasiado grande (mais de " + AppLogic.FormatMB(AppLogic.MaxSane) + ") mesmo a 64 kbps mono.",
+                                        "Enviar", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+                    if (p2 == EncodePlan.DoesNotFit)
+                    {
+                        MessageBox.Show(this, "Não cabe, mesmo a 64 kbps mono: faltam " + AppLogic.FormatMB(AppLogic.MissingBytes(size2, freeEff)) +
+                                        " no relógio. Apaga outra música e tenta de novo.", "Enviar", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+                    MusLog("Ficou com " + AppLogic.FormatMB(size2) + " (64 kbps mono).");
+                    mp3 = m64;
+                }
+                await DoSend(mp3, slot, display);
+            }
+        }
         catch (Exception ex) { MusLog("Erro inesperado: " + ex.Message); }
         finally { musCts = null; SetBusy(false); musStatus.Text = ""; }
         await LoadSlotsAsync();
     }
 
     // Sends a ready MP3 to a slot: checks the space, chooses Wi-Fi or USB, retries on link problems.
-    async Task DoSend(string path, int slot)
+    async Task DoSend(string path, int slot, string displayName)
     {
         long size = new FileInfo(path).Length;
         musStatus.Text = "A ler o relógio...";
@@ -388,7 +479,7 @@ public partial class MainForm
             MusLog("Slot " + slot + " apagado.");
         }
 
-        string name = Path.GetFileNameWithoutExtension(path);
+        string name = AppLogic.SafeFileName(displayName);
         CancellationToken ct = musCts.Token;
         PutResult res = PutResult.Failed;
         string msg = null;

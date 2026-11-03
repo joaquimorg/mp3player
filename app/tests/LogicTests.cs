@@ -120,6 +120,12 @@ public static class LogicTests
         Eq(null, AppLogic.ParseTwatch("OK TWATCH 1.1 modo=X wifi=a ip=b livre=abc"), "bad free");
         Eq(null, AppLogic.ParseTwatch(null), "null line");
 
+        // Command-line quoting (a trailing backslash must not swallow the closing quote).
+        Eq("\"abc\"", AppLogic.QuoteArg("abc"), "quote plain");
+        Eq("\"C:\\a b\\\\\"", AppLogic.QuoteArg("C:\\a b\\"), "quote trailing backslash doubled");
+        Eq("\"x\\y\"", AppLogic.QuoteArg("x\\y"), "quote inner backslash kept");
+        Eq("\"ab\"", AppLogic.QuoteArg("a\"b"), "quote drops inner quotes");
+
         // LISTA reply.
         long lfree;
         SlotInfo[] sl = AppLogic.ParseLista("OK LISTA 9908224 1000:6162 0: 5:C3A7 0:", out lfree);

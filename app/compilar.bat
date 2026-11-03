@@ -24,7 +24,7 @@ if errorlevel 1 (
 if /i "%~1"=="testes" exit /b 0
 
 echo [2/2] A compilar a app...
-"%CSC%" /nologo /warnaserror+ /target:winexe /out:TWatchMP3.exe /r:System.Windows.Forms.dll /r:System.Drawing.dll *.cs
+"%CSC%" /nologo /warnaserror+ /target:winexe /out:TWatchMP3.exe /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll *.cs
 if errorlevel 1 exit /b 1
 echo OK: TWatchMP3.exe
 exit /b 0

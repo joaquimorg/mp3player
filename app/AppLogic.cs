@@ -116,6 +116,16 @@ public static class AppLogic
         return sb.ToString();
     }
 
+    // Quotes one command-line argument for CreateProcess: quotes inside are dropped and backslashes right
+    // before the closing quote are doubled (a path ending in "\" would otherwise swallow the quote).
+    public static string QuoteArg(string s)
+    {
+        s = s.Replace("\"", "");
+        int trailing = 0;
+        while (trailing < s.Length && s[s.Length - 1 - trailing] == '\\') trailing++;
+        return "\"" + s + new string('\\', trailing) + "\"";
+    }
+
     // Upper-case hex of the UTF-8 bytes (the PUT name field).
     public static string NameHex(string name)
     {
