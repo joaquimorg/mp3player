@@ -66,4 +66,22 @@ void setVolume(uint8_t vol) {
   p.end();
 }
 
+bool programFlag() {
+  Preferences p;
+  bool v = false;
+  if (p.begin(kNs, true)) {
+    v = p.getUChar("prog", 0) != 0;
+    p.end();
+  }
+  return v;
+}
+
+void setProgramFlag(bool on) {
+  if (programFlag() == on) return;
+  Preferences p;
+  if (!p.begin(kNs, false)) return;
+  p.putUChar("prog", on ? 1 : 0);
+  p.end();
+}
+
 }  // namespace settings

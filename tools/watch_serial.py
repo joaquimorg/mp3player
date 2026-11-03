@@ -1,11 +1,11 @@
-"""Dev helper for the TEMPORARY Task 4 harness (pio env watch_harness).
+"""Serial dev helper (e.g. for the watch_uidebug env: cmd "tap 200 220" "screen").
 
 Needs pyserial (PlatformIO's own Python has it):
   %USERPROFILE%\\.platformio\\penv\\Scripts\\python.exe tools\\watch_serial.py ...
 
   listen [--secs N] [--reset]            print serial output for N seconds
   cmd "<line>" ["<line>" ...] [--secs N]  send harness commands, then listen
-  upload <file.mp3> <slot> [--force]      write a file into a slot over serial
+  upload <file.mp3> <slot> [--force]      (needed the removed Task 4 harness; use the web page)
                                           (refused by the watch if the slot has a file
                                           unless --force)
 The port is opened with DTR/RTS released so the watch is NOT reset unless --reset.

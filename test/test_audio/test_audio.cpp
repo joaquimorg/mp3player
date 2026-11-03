@@ -229,7 +229,7 @@ static void test_player_plays_and_pauses_real_file() {
   int slot = 0;
   for (int i = 0; i < 4 && !slot; ++i)
     if (has[i]) slot = i + 1;
-  if (!slot) TEST_IGNORE_MESSAGE("no MP3 in any slot (upload one with the harness)");
+  if (!slot) TEST_IGNORE_MESSAGE("no MP3 in any slot (upload one via the web page)");
   player::begin();
   player::play(slot);
   delay(300);

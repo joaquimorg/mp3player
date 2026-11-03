@@ -246,18 +246,6 @@ int32_t dataCallback(Frame* frames, int32_t count) { return player::pullFrames(f
 
 }  // namespace
 
-#ifdef TASK4_HARNESS
-void debugAddDevice(const String& name, const uint8_t addr[6]) {
-  if (!s_lock) return;
-  Lock l;
-  Device d;
-  d.name = name;
-  memcpy(d.addr, addr, ESP_BD_ADDR_LEN);
-  d.rssi = 0;
-  s_devices.push_back(d);
-}
-#endif
-
 void begin() {
   if (s_started.load()) return;
   if (!s_lock) s_lock = xSemaphoreCreateMutex();

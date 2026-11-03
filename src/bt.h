@@ -29,9 +29,4 @@ struct Stats {
 };
 Stats stats();
 
-#ifdef TASK4_HARNESS
-// Test hook: inject a (possibly non-existent) device into devices().
-void debugAddDevice(const String& name, const uint8_t addr[6]);
-#endif
-
 }  // namespace bt

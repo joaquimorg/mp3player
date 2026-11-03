@@ -3,6 +3,7 @@
 #include <lwip/sockets.h>
 #include <WebServer.h>
 #include <uri/UriBraces.h>
+#include <atomic>
 #include <memory>
 #include <string>
 #include "net_logic.h"
@@ -44,10 +45,14 @@ struct Upload {
   size_t written = 0;      // bytes of file data received so far
 };
 Upload s_up;
+// Mirrors "a file is being received" for other tasks (the UI) while loop() is
+// busy inside the upload.
+std::atomic<bool> s_receiving{false};
 
 void resetUpload() {
   s_up.writer.reset();  // SlotWriter destructor aborts an uncommitted write
   s_up = Upload();
+  s_receiving = false;
 }
 
 void sendJson(int code, const std::string& body) {
@@ -85,6 +90,7 @@ void handleUpload() {
       return;
     }
     s_up.active = true;
+    s_receiving = true;
     s_up.slot = slotFromUri(s_server->uri());
     s_up.contentLength = s_server->clientContentLength();
     // Detect a vanished peer (Wi-Fi dropped without FIN) in ~5 s instead of never.
@@ -331,5 +337,6 @@ String ipText() {
 
 bool inSetupAp() { return s_state == State::Ap; }
 bool connecting() { return s_state == State::Connecting; }
+bool uploading() { return s_receiving.load(); }
 
 }  // namespace netmode

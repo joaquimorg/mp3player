@@ -18,4 +18,10 @@ void setLoopMode(slotlogic::LoopMode mode);
 uint8_t volume();             // 0..100, default 50
 void setVolume(uint8_t vol);  // clamped to 100
 
+// Set while the watch is in Programação mode, cleared in Reprodução. At boot it
+// only counts after a software reset (the reboot that follows POST /wifi), see
+// uilogic::bootIntoProgram(). Written only when it changes.
+bool programFlag();
+void setProgramFlag(bool on);
+
 }  // namespace settings

@@ -17,5 +17,7 @@ void end();     // stops the server and turns Wi-Fi off
 String ipText();
 bool inSetupAp();
 bool connecting();   // true during the (up to) 15 s connection attempt
+bool uploading();    // a file upload is being received; safe to call from another task
+                     // while loop() is busy streaming it
 
 }  // namespace netmode
