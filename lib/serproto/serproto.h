@@ -43,6 +43,17 @@ bool hexDecode(const char* hex, uint8_t* out, size_t cap, size_t& n);
 // anything else -> BadSeq (that one byte is consumed; caller should drain input and ask for a resend).
 // data()/dataLen() are valid after Ok, Done and OkDuplicate (do not write on duplicates).
 // total == 0: feed() always returns Done and consumes nothing.
+//
+// crc16 is appended BIG-ENDIAN (high byte first); the PC side must match.
+//
+// What the serial handler must do after each Result:
+//   NeedMore    - keep reading. If no byte arrives for 3 s mid-frame: abortFrame(), send 'R'.
+//   Ok / Done   - write data()/dataLen(), send 'K' (Done: finish, compare crc32()).
+//   OkDuplicate - send 'K', do NOT write.
+//   BadCrc      - (whole frame consumed) drain the line by silence (~10-20 ms with no bytes), abortFrame(), send 'R'.
+//   BadSeq      - (only 1 byte consumed, rest of the frame still arriving) drain by silence, abortFrame(), send 'R'.
+// received()/next seq are kept by abortFrame(), so the sender resends the same block.
+// ~4.1 KB object (internal frame buffer): must not live on a task stack; use static or heap storage.
 class BlockReceiver {
  public:
   enum class Result { NeedMore, Ok, OkDuplicate, BadCrc, BadSeq, Done };
@@ -52,6 +63,8 @@ class BlockReceiver {
   size_t dataLen() const { return dataLen_; }
   uint32_t received() const { return received_; }
   uint32_t crc32() const { return crc32Final(crc_); }
+  // Drops a partially received frame (timeout, or after draining a bad frame). Keeps received_/seq state.
+  void abortFrame() { have_ = 0; need_ = 0; dup_ = false; }
 
  private:
   uint32_t total_, received_;
