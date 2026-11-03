@@ -37,7 +37,6 @@ UploadCheck validateUpload(int slot, size_t size, size_t freeBytes, const uint8_
   bool id3 = head[0] == 'I' && head[1] == 'D' && head[2] == '3';
   bool sync = head[0] == 0xFF && (head[1] & 0xE0) == 0xE0;
   if (size == 0 || !(id3 || sync)) return UploadCheck::NotMp3;
-  if (size > kMaxFileSize) return UploadCheck::TooBig;
   if (size + kFsOverhead > freeBytes) return UploadCheck::NoSpace;
   return UploadCheck::Ok;
 }

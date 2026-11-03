@@ -52,6 +52,11 @@ void test_messages() {
   TEST_ASSERT_TRUE(uploadErrorMessage(UploadCheck::NoSpace, false) != uploadErrorMessage(UploadCheck::NoSpace, true));
   TEST_ASSERT_EQUAL_STRING("", uploadErrorMessage(UploadCheck::Ok, false));
 }
+void test_no_space_message() {
+  TEST_ASSERT_EQUAL_STRING("Não cabe: o ficheiro precisa de 8,0 MB e há 2,5 MB livres. Apaga uma música e tenta de novo.",
+                           noSpaceMessage(8u * 1048576u, 2621440u, false).c_str());
+  TEST_ASSERT_TRUE(noSpaceMessage(1, 1, true).find("Apaga primeiro este slot") != std::string::npos);
+}
 void test_slot_number() {
   TEST_ASSERT_EQUAL_INT(3, parseSlotNumber("3"));
   TEST_ASSERT_EQUAL_INT(0, parseSlotNumber("12"));
@@ -64,7 +69,7 @@ static void runAll() {
   RUN_TEST(test_sanitize_basic); RUN_TEST(test_sanitize_ext_case); RUN_TEST(test_sanitize_path);
   RUN_TEST(test_sanitize_ctrl_and_tags); RUN_TEST(test_sanitize_utf8_kept); RUN_TEST(test_sanitize_latin1_fallback);
   RUN_TEST(test_sanitize_cap_no_split); RUN_TEST(test_sanitize_empty); RUN_TEST(test_sanitize_trailing_space_after_cut); RUN_TEST(test_json_escape);
-  RUN_TEST(test_json_error); RUN_TEST(test_slots_json); RUN_TEST(test_estimate); RUN_TEST(test_messages);
+  RUN_TEST(test_json_error); RUN_TEST(test_slots_json); RUN_TEST(test_estimate); RUN_TEST(test_messages); RUN_TEST(test_no_space_message);
   RUN_TEST(test_slot_number);
   UNITY_END();
 }

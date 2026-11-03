@@ -19,7 +19,7 @@ constexpr uint32_t kConnectTimeoutMs = 15000;
 // Requests whose Content-Length is above this can never be a valid upload: they
 // are refused immediately and the connection is dropped instead of being drained
 // (draining costs ~6 s per MB on this hardware).
-constexpr long kMaxDrainBytes = (long)slotlogic::kMaxFileSize + 4096;
+// (The limit is dynamic: free space + 4096, evaluated per request.)
 const char* kApName = "TWATCH-SETUP";
 const char* kSlotPrefix = "/api/slot/";
 
@@ -82,7 +82,8 @@ void failUpload(int code, const char* msg) {
 // writer, because the partial tmp file still counts as used space until then.
 void failWrite() {
   if (storage::freeBytes() < slotlogic::kFsOverhead)
-    failUpload(507, netlogic::uploadErrorMessage(slotlogic::UploadCheck::NoSpace, storage::hasFile(s_up.slot)));
+    failUpload(507, netlogic::noSpaceMessage(netlogic::estimateFileSize(s_up.contentLength), storage::freeBytes(),
+                                             storage::hasFile(s_up.slot)).c_str());
   else
     failUpload(500, "Erro ao gravar na memória do relógio.");
 }
@@ -113,17 +114,21 @@ void handleUpload() {
     c.setSocketOption(IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof cnt);
     Serial.printf("[net] upload start slot %d name '%s' content-length %ld heap %u\n", s_up.slot,
                   up.filename.c_str(), s_up.contentLength, (unsigned)ESP.getFreeHeap());
-    if (s_up.contentLength > kMaxDrainBytes) {  // checked first: whatever else is wrong, never drain this
-      failUpload(400, netlogic::uploadErrorMessage(slotlogic::UploadCheck::TooBig, false));
-      sendError(400, s_up.errMsg.c_str());
+    size_t freeNow = storage::freeBytes();
+    bool badSlot = slotlogic::slotPath(s_up.slot) == nullptr;
+    bool oversize = s_up.contentLength > 0 && (size_t)s_up.contentLength > freeNow + 4096;
+    if (badSlot || oversize) {  // never drain these: answer now and drop the connection
+      if (badSlot) failUpload(400, netlogic::uploadErrorMessage(slotlogic::UploadCheck::BadSlot, false));
+      else
+        failUpload(507, netlogic::noSpaceMessage(netlogic::estimateFileSize(s_up.contentLength), freeNow,
+                                                 storage::hasFile(s_up.slot)).c_str());
+      sendError(s_up.errCode, s_up.errMsg.c_str());
       s_up.responded = true;
       // Not worth reading megabytes just to discard them. client() returns a copy of
       // the handle, so stop() on it would not close anything: shut the socket down so
       // the parser's next read fails and the request is dropped at once.
       int fd = c.fd();
       if (fd >= 0) lwip_shutdown(fd, SHUT_RDWR);
-    } else if (slotlogic::slotPath(s_up.slot) == nullptr) {
-      failUpload(400, netlogic::uploadErrorMessage(slotlogic::UploadCheck::BadSlot, false));
     } else if (s_up.contentLength <= 0) {
       failUpload(400, "Pedido sem tamanho (Content-Length).");
     }
@@ -137,13 +142,16 @@ void handleUpload() {
       size_t est = netlogic::estimateFileSize(s_up.contentLength);
       slotlogic::UploadCheck chk = slotlogic::validateUpload(s_up.slot, est, storage::freeBytes(), head);
       if (chk != slotlogic::UploadCheck::Ok) {
-        failUpload(400, netlogic::uploadErrorMessage(chk, storage::hasFile(s_up.slot)));
+        if (chk == slotlogic::UploadCheck::NoSpace)
+          failUpload(507, netlogic::noSpaceMessage(est, storage::freeBytes(), storage::hasFile(s_up.slot)).c_str());
+        else
+          failUpload(400, netlogic::uploadErrorMessage(chk, storage::hasFile(s_up.slot)));
         return;
       }
       s_up.writer.reset(new storage::SlotWriter(s_up.slot));
     }
-    if (s_up.written + up.currentSize > slotlogic::kMaxFileSize) {
-      failUpload(400, netlogic::uploadErrorMessage(slotlogic::UploadCheck::TooBig, false));
+    if (s_up.written + up.currentSize > (size_t)s_up.contentLength) {  // more than announced (and checked)
+      failUpload(400, "O ficheiro recebido é maior do que o anunciado.");
       return;
     }
     if (!s_up.writer || !s_up.writer->write(up.buf, up.currentSize)) {

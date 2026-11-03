@@ -10,7 +10,7 @@ namespace netlogic {
 constexpr size_t kMaxNameBytes = 48;
 // Bytes of a multipart body that are not file data (boundaries + part headers),
 // subtracted from Content-Length to estimate the file size. Deliberately
-// generous: the streaming loop still enforces the hard 3 MB cap.
+// generous: the streaming loop still enforces the free-space check.
 constexpr size_t kMultipartSlack = 400;
 
 struct SlotInfo {
@@ -33,6 +33,9 @@ size_t estimateFileSize(long contentLength);
 // Portuguese (Portugal) message for a failed check. `overwrite` = slot already
 // holds a file (an overwrite needs old+new on flash, so NoSpace means "delete first").
 const char* uploadErrorMessage(slotlogic::UploadCheck c, bool overwrite);
+
+// "Não cabe: o ficheiro precisa de X MB e há Y MB livres. ..." (decimal comma).
+std::string noSpaceMessage(size_t needBytes, size_t freeBytes, bool overwrite);
 
 // Slot number from a one-character path tail ("1".."9"); 0 if invalid.
 int parseSlotNumber(const std::string& s);

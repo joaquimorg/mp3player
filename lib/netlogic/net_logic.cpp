@@ -108,12 +108,24 @@ const char* uploadErrorMessage(UploadCheck c, bool overwrite) {
     case UploadCheck::Ok: return "";
     case UploadCheck::BadSlot: return "Slot inválido (1 a 4).";
     case UploadCheck::NotMp3: return "Ficheiro inválido: só são aceites ficheiros MP3.";
-    case UploadCheck::TooBig: return "Ficheiro demasiado grande (máximo 3 MB).";
     case UploadCheck::NoSpace:
       return overwrite ? "Sem espaço: apaga primeiro este slot e volta a enviar."
                        : "Sem espaço livre no relógio. Apaga outro slot e tenta de novo.";
   }
   return "Erro desconhecido.";
+}
+
+static std::string mb(size_t bytes) {
+  char b[24];
+  snprintf(b, sizeof b, "%.1f", (double)bytes / 1048576.0);
+  for (char* p = b; *p; ++p)
+    if (*p == '.') *p = ',';
+  return b;
+}
+
+std::string noSpaceMessage(size_t needBytes, size_t freeBytes, bool overwrite) {
+  return "Não cabe: o ficheiro precisa de " + mb(needBytes) + " MB e há " + mb(freeBytes) + " MB livres. " +
+         (overwrite ? "Apaga primeiro este slot e volta a enviar." : "Apaga uma música e tenta de novo.");
 }
 
 int parseSlotNumber(const std::string& s) {

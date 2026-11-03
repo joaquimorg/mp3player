@@ -115,8 +115,9 @@ A pasta `tools/pc` tem uma ferramenta que descarrega o áudio de um link do YouT
 ### Limites
 
 - **4 slots**.
-- **Máximo de 3 MB por ficheiro** (3.000.000 bytes, cerca de 3,5 minutos a 112 kbps). Quatro ficheiros deste tamanho cabem sempre na memória do relógio. A ferramenta do YouTube recomprime para 64 kbps mono (cerca de 6 minutos) quando o ficheiro é maior do que o limite ou não cabe no espaço livre.
-- Só ficheiros MP3. O envio de uma música grande demora cerca de **1 minuto** e o relógio fica ocupado enquanto recebe.
+- **Não há limite fixo por música**: o espaço total (cerca de 12 MB, ou seja, cerca de 14 minutos a 112 kbps) é **partilhado** pelos 4 slots. Uma música grande reduz o espaço das outras; a página mostra "Livre: X MB". Um ficheiro só é recusado se não couber no espaço livre (com uma pequena margem de 16 KB), e isso é detetado logo no início do envio.
+- A ferramenta do YouTube tenta 64 kbps mono (metade do tamanho) quando o ficheiro não cabe no espaço livre.
+- Só ficheiros MP3. O envio demora cerca de **1 minuto por cada 3 MB** e o relógio fica ocupado enquanto recebe.
 
 ## "Toque indisponível"
 

@@ -4,8 +4,8 @@ rem Uso interativo: youtube-para-relogio.bat
 rem Uso por argumentos: youtube-para-relogio.bat "<link-ou-ficheiro>" <slot 1-4> <ip>
 rem Variaveis de ambiente para execucao automatica: NOPAUSE=1 (nao fazer pause no fim) e TWATCH_NOCHCP=1.
 rem O pause final so acontece em duplo clique, arrastar-e-largar ou modo interativo.
-rem Codigos de saida: 0 ok, 1 dados invalidos, 2 relogio inacessivel, 3 falha na conversao,
-rem                   4 audio demasiado longo, 5 falha no envio.
+rem Codigos de saida: 0 ok, 1 dados invalidos, 2 relogio inacessivel (ou em modo Wi-Fi setup), 3 falha na conversao,
+rem                   4 resultado absurdo (> ~12 MB), 5 falha no envio ou nao cabe no relogio.
 rem Nota: nao se usa "enabledelayedexpansion" de proposito - assim "!" e "%" num link nao sao
 rem       interpretados; "&" funciona porque os valores estao sempre entre aspas.
 if not defined TWATCH_NOCHCP chcp 65001 >nul
@@ -14,8 +14,9 @@ set "DIR=%~dp0"
 set "DIRNB=%DIR:~0,-1%"
 set "RC=0"
 set "WORK="
-rem Limite por slot: 3 MB (3.000.000 bytes) = slotlogic::kMaxFileSize no firmware; 4 faixas deste tamanho cabem sempre.
-set "MAXB=3000000"
+rem Nao ha limite fixo por ficheiro: so conta o espaco livre do relogio. MAXSANE protege contra
+rem resultados absurdos (maior que toda a memoria do relogio, ~12 MB).
+set "MAXSANE=12582912"
 rem Folga de blocos do sistema de ficheiros do relogio (= slotlogic::kFsOverhead).
 set "OVERH=16384"
 set "MODOSETUP="
@@ -141,13 +142,11 @@ call :tamanho
 echo Ficheiro MP3: %KB% KB
 rem demasiado grande para o limite do slot OU para o espaço livre do relógio: tentar uma vez a 64 kbps mono
 set "MOTIVO="
-if %SIZE% GTR %MAXB% set "MOTIVO=cap"
 set /a LIM=FREE-OVERH
-if %SIZE% GTR %LIM% if not defined MOTIVO set "MOTIVO=livre"
+if %SIZE% GTR %LIM% set "MOTIVO=livre"
 if not defined MOTIVO goto :tamok
 set /a FREEKB=FREE/1024
-if "%MOTIVO%"=="cap" echo O áudio ocupa mais de 3 MB ^(%KB% KB^), o máximo por slot. A tentar de novo em 64 kbps mono ...
-if "%MOTIVO%"=="livre" echo O áudio ^(%KB% KB^) não cabe no espaço livre do relógio ^(%FREEKB% KB^). A tentar de novo em 64 kbps mono para ocupar menos ...
+echo O áudio ^(%KB% KB^) não cabe no espaço livre do relógio ^(%FREEKB% KB^). A tentar de novo em 64 kbps mono para ocupar menos ...
 for %%F in ("%MP3%") do set "NOME=%%~nF"
 mkdir "%WORK%\r2" >nul 2>&1
 "%DIR%ffmpeg.exe" -hide_banner -loglevel error -y -i "%MP3%" -vn -ac 1 -ar 44100 -b:a 64k "%WORK%\r2\%NOME%.mp3"
@@ -155,15 +154,15 @@ if errorlevel 1 goto :convmau
 set "MP3=%WORK%\r2\%NOME%.mp3"
 if not exist "%MP3%" goto :convmau
 call :tamanho
-if %SIZE% GTR %MAXB% goto :longo
-if "%MOTIVO%"=="cap" echo Resultado: %KB% KB ^(64 kbps mono - qualidade mais baixa para caber nos 3 MB^).
-if "%MOTIVO%"=="livre" echo Resultado: %KB% KB ^(64 kbps mono - qualidade mais baixa para caber no espaço livre do relógio^).
+if %SIZE% GTR %MAXSANE% goto :longo
+echo Resultado: %KB% KB ^(64 kbps mono - qualidade mais baixa para caber no espaço livre do relógio^).
 :tamok
 
 rem ---------- espaco no relogio ----------
 set /a LIM=FREE-OVERH
 if %SIZE% GTR %LIM% goto :semespaco
 
+if defined TWATCH_DRYRUN echo [teste] enviaria %KB% KB para o slot %SLOT% & goto :fim
 :enviar
 copy /y "%MP3%" "%WORK%\up.mp3" >nul
 for %%F in ("%MP3%") do set "UPN=%%~nF"
@@ -179,6 +178,7 @@ if not "%CURLRC%"=="0" goto :enviomau
 set "CODE=000"
 set /p "CODE="<"%WORK%\code.txt"
 if "%CODE%"=="200" goto :enviook
+if "%CODE%"=="507" goto :semespaco
 findstr /c:"Sem espa" "%WORK%\resp.json" >nul 2>&1
 if not errorlevel 1 goto :semespaco
 echo ERRO: o relógio recusou o ficheiro ^(HTTP %CODE%^):
@@ -200,7 +200,8 @@ set "RC=5" & goto :fim
 
 :semespaco
 echo.
-echo Sem espaço no relógio para este ficheiro ^(%KB% KB; livre: %FREE% bytes^).
+set /a "FALTA=(SIZE+OVERH-FREE)/1024+1"
+echo Não cabe: o ficheiro precisa de %KB% KB e o relógio só tem %FREE% bytes livres ^(faltam cerca de %FALTA% KB^).
 if "%OLD%"=="0" goto :semespaco2
 echo O slot %SLOT% já tem uma faixa; para a substituir é preciso espaço para a antiga e a nova.
 echo Apaga primeiro este slot ^(ou outro^).
@@ -228,8 +229,7 @@ echo Para apagar um slot: curl -X DELETE http://%IP%/api/slot/N   ^(N = 1 a 4^)
 set "RC=5" & goto :fim
 
 :longo
-echo ERRO: vídeo demasiado longo. Mesmo a 64 kbps mono o ficheiro tem %KB% KB e o máximo é 2929 KB
-echo ^(cerca de 3,5 minutos a 112 kbps ou 6 minutos a 64 kbps^). Escolhe um vídeo mais curto.
+echo ERRO: o resultado tem %KB% KB, mais do que toda a memória do relógio ^(cerca de 12 MB^). Escolhe um áudio mais curto.
 set "RC=4" & goto :fim
 
 :convmau
@@ -311,6 +311,8 @@ if defined SLOT set "TW_SL=%SLOT%"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $j=Get-Content -Raw -Encoding UTF8 -LiteralPath ($env:TW_WORK+'\slots.json') | ConvertFrom-Json; $o=0; foreach($s in $j.slots){ if($s.n -eq $env:TW_SL){$o=$s.size} }; Set-Content -Encoding ASCII -LiteralPath ($env:TW_WORK+'\info.cmd') -Value ('set FREE='+[long]$j.free), ('set OLD='+[long]$o) } catch { exit 1 }" >nul 2>&1
 if errorlevel 1 exit /b 1
 call "%WORK%\info.cmd"
+rem Testes: TWATCH_FAKEFREE=<bytes> simula o espaco livre; TWATCH_DRYRUN=1 nao envia nada.
+if defined TWATCH_FAKEFREE set "FREE=%TWATCH_FAKEFREE%"
 exit /b 0
 
 :mostraslots

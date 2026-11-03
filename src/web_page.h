@@ -13,7 +13,7 @@ static const char kMainPage[] PROGMEM = R"HTML(<!DOCTYPE html>
 body{font-family:system-ui,sans-serif;margin:0;background:#101418;color:#e8edf2}
 main{max-width:34rem;margin:0 auto;padding:1rem}
 h1{font-size:1.3rem;margin:.2rem 0 .2rem}
-.free{color:#9fb0c0;margin:0 0 1rem;font-size:.95rem}
+.free{color:#e8edf2;margin:0 0 1rem;font-size:1.25rem;font-weight:600}
 .slot{background:#1b222a;border-radius:.7rem;padding:.8rem;margin-bottom:.8rem}
 .top{display:flex;justify-content:space-between;gap:.5rem;align-items:baseline}
 .nm{font-weight:600;overflow-wrap:anywhere}
@@ -32,12 +32,12 @@ progress{width:100%;height:.7rem;margin-top:.6rem;display:none}
 <div id="slots"></div>
 </main>
 <script>
-var MAX=3000000,OVH=16384,FREE=0;
+var OVH=16384,FREE=0;
 function fmt(n){return n>=1048576?(n/1048576).toFixed(2)+' MB':n>=1024?(n/1024).toFixed(0)+' KB':n+' B';}
 function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x!==undefined)e.textContent=x;return e;}
 function load(keepMsg){
   fetch('/api/slots').then(function(r){return r.json();}).then(function(d){
-    FREE=d.free;document.getElementById('free').textContent='Espaço livre: '+fmt(d.free)+' · máximo por ficheiro: 3 MB';
+    FREE=d.free;document.getElementById('free').textContent='Livre: '+fmt(d.free)+' (partilhado pelos 4 slots)';
     var box=document.getElementById('slots');
     var old={};[].forEach.call(box.querySelectorAll('.msg'),function(m){old[m.dataset.n]=[m.className,m.textContent];});
     box.textContent='';
@@ -58,8 +58,7 @@ function card(s,prev){
   u.onclick=function(){
     var file=f.files[0];
     if(!file){say('err','Escolhe primeiro um ficheiro MP3.');return;}
-    if(file.size>MAX){say('err','Ficheiro demasiado grande (máximo 3 MB).');return;}
-    if(file.size+OVH>FREE){say('err',s.size?'Sem espaço: apaga primeiro este slot e volta a enviar.':'Sem espaço livre no relógio. Apaga outro slot e tenta de novo.');return;}
+    if(file.size+OVH>FREE){say('err','Não cabe: o ficheiro precisa de '+fmt(file.size+OVH)+' e há '+fmt(FREE)+' livres. '+(s.size?'Apaga primeiro este slot e volta a enviar.':'Apaga uma música e tenta de novo.'));return;}
     if(s.size&&!confirm('Substituir o conteúdo do slot '+s.n+'?'))return;
     var fd=new FormData();fd.append('file',file,file.name);
     var xhr=new XMLHttpRequest();xhr.open('POST','/api/slot/'+s.n);
