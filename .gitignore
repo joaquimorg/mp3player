@@ -3,3 +3,5 @@
 .vscode/
 tools/pc/*.exe
 tools/pc/ultimo-ip.txt
+app/bin/
+app/*.exe
