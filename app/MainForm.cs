@@ -44,8 +44,10 @@ public partial class MainForm : Form
         Text = "T-Watch MP3";
         Font = Theme.Normal;
         BackColor = Theme.Bg;
+        // Fixed size: the layout is designed for it (no resizing or maximising).
+        FormBorderStyle = FormBorderStyle.FixedSingle;
+        MaximizeBox = false;
         ClientSize = new Size(840, 760);
-        MinimumSize = new Size(760, 640);
         StartPosition = FormStartPosition.CenterScreen;
         AllowDrop = true;
 
