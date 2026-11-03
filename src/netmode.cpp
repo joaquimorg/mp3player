@@ -487,9 +487,12 @@ void debugDropUpload() {  // "netdrop" console command: cut the upload connectio
 #endif
 
 void checkStall() {
-  if (s_upFd.load() < 0 || !netlogic::uploadStalled(millis(), s_lastData.load(), netlogic::kUploadStallMs)) return;
-  int fd = s_upFd.exchange(-1);
-  if (fd < 0) return;
+  // Judge the fd that is watched now and clear it only if it is still that same
+  // fd: the server may have closed the socket meanwhile (resetUpload() clears
+  // s_upFd) or a new upload may have started; never shut down a recycled fd.
+  int fd = s_upFd.load();
+  if (fd < 0 || !netlogic::uploadStalled(millis(), s_lastData.load(), netlogic::kUploadStallMs)) return;
+  if (!s_upFd.compare_exchange_strong(fd, -1)) return;
   Serial.printf("[net] upload stalled: no data for %u s, dropping the connection\n",
                 (unsigned)(netlogic::kUploadStallMs / 1000));
   lwip_shutdown(fd, SHUT_RDWR);  // the body loop sees the socket closed and aborts the upload
