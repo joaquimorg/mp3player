@@ -13,6 +13,7 @@
 #include "settings.h"
 #include "slot_logic.h"
 #include "storage.h"
+#include "transfer.h"
 
 namespace player {
 namespace {
@@ -238,6 +239,14 @@ int decodeOne() {
   return 0;
 }
 
+// A transfer is replacing this slot: do not open it (commit() renames over it).
+bool slotBeingWritten(int slot) {
+  if (slot == 0 || !transfer::active()) return false;
+  if (transfer::snapshot().slot != slot) return false;
+  log_w("player: slot %d is being received, not played", slot);
+  return true;
+}
+
 void handleCmd(const Cmd& c) {
   bool has[4];
   switch (c.type) {
@@ -248,6 +257,7 @@ void handleCmd(const Cmd& c) {
         log_w("player: play(%d): slot empty or invalid, ignored", c.slot);
         return;
       }
+      if (slotBeingWritten(slot)) return;
       s_ring.requestFlush();
       d.badStreak = 0;
       s_state.store(State::Playing);
@@ -261,6 +271,7 @@ void handleCmd(const Cmd& c) {
       int slot = c.type == CmdType::Next
                      ? slotlogic::nextSlot(cur, slotlogic::LoopMode::AllSlots, has)
                      : slotlogic::prevSlot(cur, has);
+      if (slotBeingWritten(slot)) return;
       if (slot == 0) {
         log_w("player: next/prev: every slot is empty");
         s_ring.requestFlush();

@@ -34,7 +34,8 @@
 //
 // BAUD 921600|115200 -> "OK" (sent and flushed at the old speed), then the watch switches; the PC switches after
 // reading OK. The watch goes back to 115200 by itself at the end of a PUT (success or failure) and after 10 s
-// without any received byte outside a PUT, so a crashed PC app cannot leave the link at the wrong speed.
+// without a valid command line outside a PUT (noise does not count), so a crashed PC app cannot leave the link
+// at the wrong speed.
 //
 // PUT <slot> <size> <crc32 hex> <name hex> (any mode):
 //  - Refused with "ERRO ocupado" while a mode switch is pending, a Wi-Fi upload or another transfer is running;
@@ -46,7 +47,7 @@
 //  - After the last block, instead of 'K': "OK <crc32 8 hex>" (crc matches, committed, named) or "ERRO crc" /
 //    "ERRO gravar". "ERRO espaco"/"ERRO gravar" can also replace a 'K' when a flash write fails.
 //  - "CANCELAR" (line) at a frame boundary -> abort, "OK". Other valid command lines get "ERRO ocupado".
-//    (If 'C' happens to be the expected seq byte, CANCELAR is only recognised after the 3 s frame timeout.)
+//    (If 'C' is the expected or last seq byte, the line is recognised after 50 ms of quiet; see putTimers.)
 //  - 5 s without any byte (or 30 s without an accepted block) -> abort ("ERRO tempo", usually unread).
 //  - Any end: the SlotWriter is committed or aborted (old slot intact, no .tmp), the on-watch overlay shows
 //    Done/Failed, playback resumes if it was playing, and the link returns to 115200 after the reply is flushed.
@@ -60,7 +61,7 @@ namespace {
 constexpr uint32_t kBaudDefault = 115200;
 constexpr uint32_t kSilenceAbortMs = 5000;   // PUT: no byte at all
 constexpr uint32_t kFrameTimeoutMs = 3000;   // PUT: partial frame, then 'R'
-constexpr uint32_t kDrainSilenceMs = 20;     // PUT: after a bad frame, wait for the line to go quiet
+constexpr uint32_t kDrainSilenceMs = 50;     // PUT: after a bad frame (or a command line), wait for quiet
 constexpr uint32_t kNoProgressMs = 30000;    // PUT: bytes keep coming but no block is ever accepted
 constexpr uint32_t kHighBaudIdleMs = 10000;  // outside a PUT at 921600: back to 115200
 
@@ -68,7 +69,8 @@ Host s_host;
 char s_line[serproto::kMaxLine + 1];
 size_t s_len = 0;
 bool s_overflow = false;  // current line is too long: discard until its terminator
-uint32_t s_lastRx = 0;    // millis() of the last received byte (or of a baud switch)
+uint32_t s_lastRx = 0;    // millis() of the last received byte (or of a baud switch / our own flash work)
+uint32_t s_lastCmd = 0;   // millis() of the last VALID command line (or baud switch): keeps 921600 alive
 bool s_highBaud = false;
 
 std::atomic<bool> s_putClaim{false};  // see putActive()
@@ -107,7 +109,7 @@ void setBaud(uint32_t baud) {
   Serial.flush();  // the reply must leave at the old speed
   Serial.updateBaudRate(baud);
   s_highBaud = baud != kBaudDefault;
-  s_lastRx = millis();
+  s_lastRx = s_lastCmd = millis();
 }
 
 // "192.168.4.1 (TWATCH-SETUP)" -> "192.168.4.1"; anything not starting with a digit ("A ligar...", "") -> "-".
@@ -206,6 +208,8 @@ void startPut(const serproto::Parsed& p) {
     if (s_put.wasPlaying) s_put.replaySlot = p.slot;
     s_put.wasPlaying = false;
     player::stop();
+    // commit() renames over this file: wait (bounded) until the decoder has really closed it.
+    for (int i = 0; i < 50 && (player::playing() || player::paused()); ++i) vTaskDelay(pdMS_TO_TICKS(10));
   } else if (s_put.wasPlaying) {
     player::pause();
   }
@@ -234,6 +238,7 @@ void finishPut() {
   }
   s_put.writer.reset();
   storage::setSlotName(s_put.slot, String(s_put.name));  // "" -> default "Faixa N"
+  s_lastRx = millis();
   transfer::done();  // after commit + name: the file is complete
   char out[24];
   snprintf(out, sizeof out, "OK %08X", (unsigned)s_put.crc);
@@ -271,6 +276,7 @@ bool acceptBlock(bool last) {
     return false;
   }
   Serial.write('K');
+  s_lastRx = millis();  // the flash write time is ours, not the PC's silence
   return true;
 }
 
@@ -328,6 +334,7 @@ size_t putFeed(const uint8_t* b, size_t n) {
         s_put.inFrame = false;
         s_put.lastProgress = millis();
         Serial.write('K');
+        s_lastRx = millis();
         break;
       case serproto::BlockReceiver::Result::BadCrc:
       case serproto::BlockReceiver::Result::BadSeq:
@@ -348,6 +355,13 @@ void putTimers(uint32_t now) {
     endPut("ERRO tempo", "Envio interrompido: demasiados erros na ligação.");
   } else if (s_put.draining && quiet >= kDrainSilenceMs) {
     frameDropped();
+  } else if (s_put.inFrame && quiet >= kDrainSilenceMs && s_put.capLen >= 2 && s_put.capLen < sizeof s_put.cap &&
+             (s_put.cap[s_put.capLen - 1] == '\n' || s_put.cap[s_put.capLen - 1] == '\r')) {
+    // A short "frame" that ends in CR/LF and then goes quiet is a command line whose first byte happened to be
+    // the expected (or the last) seq, e.g. CANCELAR while seq 0x43 'C' is due: answer it now instead of after
+    // the 3 s frame timeout. A real frame is >= 4 bytes sent in one burst by the PC; one that is cut after a
+    // byte 0x0A/0x0D and stalls for 50 ms is not a valid command either, so frameDropped() just answers 'R'.
+    frameDropped();
   } else if (s_put.inFrame && quiet >= kFrameTimeoutMs) {
     frameDropped();
   }
@@ -358,6 +372,7 @@ void putTimers(uint32_t now) {
 void handle(const char* line, size_t len) {
   serproto::Parsed p;
   bool ok = serproto::parseLine(line, len, p);
+  if (ok) s_lastCmd = millis();  // only real commands keep a high baud rate alive (noise must not)
   if (!ok) {
 #ifdef UI_DEBUG
     if (p.err && strcmp(p.err, "comando") == 0) {  // not ours: the debug console
@@ -427,19 +442,24 @@ void feed(uint8_t b) {
   s_line[s_len++] = (char)b;
 }
 
+// Outside a PUT at 921600: 10 s without a valid command line -> back to 115200 (the PC app vanished, or the
+// line is noise from a client at the wrong speed). Bytes alone do not count.
+void checkHighBaud(uint32_t now) {
+  if (!s_highBaud || now - s_lastCmd < kHighBaudIdleMs) return;
+  setBaud(kBaudDefault);
+  s_len = 0;
+  s_overflow = false;
+  memset(s_line, 0, sizeof s_line);
+}
+
 void task(void*) {
   uint8_t buf[512];
   for (;;) {
     int n = Serial.available();
     if (n <= 0) {
       uint32_t now = millis();
-      if (s_put.on) {
-        putTimers(now);
-      } else if (s_highBaud && now - s_lastRx >= kHighBaudIdleMs) {
-        setBaud(kBaudDefault);  // the PC app vanished at 921600
-        s_len = 0;
-        s_overflow = false;
-      }
+      if (s_put.on) putTimers(now);
+      else checkHighBaud(now);
       vTaskDelay(pdMS_TO_TICKS(s_put.on ? 2 : 5));
       continue;
     }
@@ -452,6 +472,7 @@ void task(void*) {
       else feed(buf[i++]);
     }
     if (s_put.on) putTimers(millis());  // the no-progress limit also applies to a never-silent line
+    else checkHighBaud(millis());       // noise at the wrong speed must not keep 921600 alive
     memset(buf, 0, sizeof buf);
   }
 }
@@ -462,7 +483,7 @@ bool putActive() { return s_putClaim.load(); }
 
 void begin(const Host& host) {
   s_host = host;
-  s_lastRx = millis();
+  s_lastRx = s_lastCmd = millis();
   xTaskCreatePinnedToCore(task, "serial", STACK, nullptr, 1, nullptr, 0);
 }
 

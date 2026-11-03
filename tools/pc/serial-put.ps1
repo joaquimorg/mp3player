@@ -1,6 +1,16 @@
 <#
 Dev harness (not shipped to users): uploads a file into a watch slot over the serial port (PUT protocol).
+It is the REFERENCE CLIENT for the C# app (Task 5): same framing, timers and recovery rules.
 The port is opened with DTR/RTS released so the board is NOT reset. Skips (exit 2) if the port is busy.
+Notes for the app:
+  - Send a lone "\n" first: it ends any partial line left in the watch's buffer.
+  - TWATCH? reply: parse "wifi=" up to the LAST " ip=" (the SSID may contain spaces).
+  - If TWATCH? at 115200 gets no reply, try once at 921600 (a previous session may have left the watch there;
+    it falls back to 115200 by itself after 10 s without a valid command).
+  - The 3 s reply timer starts when the frame has left the PC (BytesToWrite == 0), not when Write() returns.
+  - Before CANCELAR wait >= 50 ms of quiet so the watch sees it as a line, not as part of a frame.
+  - Never resend the LAST block after losing the final reply: the watch may already have committed and gone
+    back to 115200. Ask TWATCH? instead.
 
   powershell -ExecutionPolicy Bypass -File serial-put.ps1 -Port COM8 -File x.mp3 -Slot 3 [-Baud 921600] [-Name nome]
 
@@ -8,6 +18,7 @@ Test options (each acts once, on the first attempt of that block):
   -CorruptBlock n     flip one data byte of block n (the watch answers R, the block is resent)
   -DropAck n          ignore the K of block n and resend the same block (the watch must answer K, not rewrite)
   -KillAfterBlocks n  exit abruptly (no CANCELAR) after n blocks were accepted
+  -CancelAtBlock n    send CANCELAR instead of block n (n = 67 or 68: seq 0x43 'C' collision) and time the reply
 Exit codes: 0 OK, 1 refused/failed, 2 port busy/missing, 3 killed on purpose.
 Protocol: PUT <slot> <size> <crc32 hex> <name hex>, then frames [seq][data<=4096][crc16 CCITT BE]; replies K/R;
 up to 5 resends per block (R or 3 s without reply), then CANCELAR; the last block is answered with a line.
@@ -20,7 +31,8 @@ param(
   [string]$Name = "",
   [int]$CorruptBlock = -1,
   [int]$DropAck = -1,
-  [int]$KillAfterBlocks = -1
+  [int]$KillAfterBlocks = -1,
+  [int]$CancelAtBlock = -1
 )
 
 $src = @'
@@ -73,9 +85,15 @@ public static class SerialPut {
   }
 
   // Waits for K/R or, when `last`, for a line. Returns "K", "R", a line, or null on timeout.
-  static string Reply(SerialPort sp, bool last) {
+  static void Drain(SerialPort sp) {
+    var w = Stopwatch.StartNew();
+    while (sp.BytesToWrite > 0 && w.ElapsedMilliseconds < 10000) Thread.Sleep(1);
+  }
+
+  static string Reply(SerialPort sp, bool last, int timeoutMs) {
+    Drain(sp);  // the reply timer starts when the frame has left the PC
     var sw = Stopwatch.StartNew();
-    while (sw.ElapsedMilliseconds < 3000) {
+    while (sw.ElapsedMilliseconds < timeoutMs) {
       int b;
       try { b = sp.ReadByte(); } catch (TimeoutException) { continue; }
       if (b == 'K' && !last) return "K";
@@ -89,12 +107,33 @@ public static class SerialPut {
     return null;
   }
 
-  public static int Run(string port, string file, int slot, int baud, string name, int corrupt, int dropAck, int killAfter) {
+  static void Status(SerialPort sp, int baud) {
+    if (baud != 115200) { Thread.Sleep(50); sp.BaudRate = 115200; }
+    Thread.Sleep(50);
+    sp.DiscardInBuffer();
+    sp.Write("\nTWATCH?\n");
+    Console.WriteLine("<< " + ReadLine(sp, 2000));
+  }
+
+  static void Quiet(SerialPort sp, int ms) {  // wait until nothing has arrived for `ms`
+    var sw = Stopwatch.StartNew();
+    while (sw.ElapsedMilliseconds < ms) {
+      if (sp.BytesToRead > 0) { sp.DiscardInBuffer(); sw.Reset(); sw.Start(); }
+      Thread.Sleep(5);
+    }
+  }
+
+  public static int Run(string port, string file, int slot, int baud, string name, int corrupt, int dropAck, int killAfter,
+                        int cancelAt) {
     byte[] data = File.ReadAllBytes(file);
     uint crc = Crc32(data);
     if (name == null || name.Length == 0) name = Path.GetFileNameWithoutExtension(file);
     byte[] nameBytes = Encoding.UTF8.GetBytes(name);
-    if (nameBytes.Length > 48) { Array.Resize(ref nameBytes, 48); }
+    if (nameBytes.Length > 48) {
+      int n = 48;
+      while (n > 0 && (nameBytes[n] & 0xC0) == 0x80) n--;  // nameBytes[n] must start a character
+      Array.Resize(ref nameBytes, n);
+    }
     var hex = new StringBuilder();
     foreach (byte x in nameBytes) hex.Append(x.ToString("X2"));
 
@@ -143,10 +182,21 @@ public static class SerialPut {
         frame[len + 1] = (byte)(c16 >> 8);
         frame[len + 2] = (byte)(c16 & 0xFF);
         bool last = i == blocks - 1;
+        if (i == cancelAt) {
+          Quiet(sp, 50);
+          var cw = Stopwatch.StartNew();
+          sp.Write("CANCELAR\n");
+          string cr = ReadLine(sp, 5000);
+          Console.WriteLine(string.Format("CANCELAR before block {0} (seq 0x{1:X2}): << {2} after {3} ms", i, i & 0xFF,
+                                          cr ?? "(nothing)", cw.ElapsedMilliseconds));
+          Status(sp, baud);
+          return cr == "OK" ? 0 : 1;
+        }
         int attempt = 0;
         for (;;) {
           if (attempt > 5) {
             Console.WriteLine("block " + i + ": no K after 5 resends, sending CANCELAR");
+            Quiet(sp, 50);
             sp.Write("CANCELAR\n");
             Console.WriteLine("<< " + ReadLine(sp, 3000));
             return 1;
@@ -159,12 +209,18 @@ public static class SerialPut {
             Console.WriteLine("block " + i + ": sending corrupted copy");
           }
           sp.Write(tx, 0, tx.Length);
-          string r = Reply(sp, last);
+          // Last block: 6 s, so the watch's own 3 s mid-frame 'R' can still arrive if the frame was cut.
+          string r = Reply(sp, last, last ? 6000 : 3000);
+          if (r == null && last) {
+            Console.WriteLine("final reply lost: NOT resending the last block; asking TWATCH?");
+            Status(sp, baud);
+            return 1;
+          }
           if (r == "K" && i == dropAck && !dropped) {
             dropped = true;
             Console.WriteLine("block " + i + ": K received, pretending it was lost; resending the same block");
             sp.Write(frame, 0, frame.Length);
-            r = Reply(sp, last);
+            r = Reply(sp, last, 3000);
             Console.WriteLine("block " + i + ": duplicate answered " + (r ?? "(nothing)"));
           }
           if (r == "K") break;
@@ -190,11 +246,7 @@ public static class SerialPut {
                                       data.Length / 1024.0 / s, baud, resends));
       string want = "OK " + crc.ToString("X8");
       Console.WriteLine(final == want ? "CRC MATCH " + crc.ToString("X8") : "CRC MISMATCH: expected " + want);
-      if (baud != 115200) { Thread.Sleep(50); sp.BaudRate = 115200; }
-      Thread.Sleep(50);
-      sp.DiscardInBuffer();
-      sp.Write("\nTWATCH?\n");
-      Console.WriteLine("<< " + ReadLine(sp, 2000));
+      Status(sp, baud);
       return final == want ? 0 : 1;
     } finally {
       if (sp.IsOpen) sp.Close();
@@ -205,4 +257,4 @@ public static class SerialPut {
 
 if (-not ("SerialPut" -as [type])) { Add-Type -TypeDefinition $src -ReferencedAssemblies System }
 $path = (Resolve-Path $File).Path
-exit [SerialPut]::Run($Port, $path, $Slot, $Baud, $Name, $CorruptBlock, $DropAck, $KillAfterBlocks)
+exit [SerialPut]::Run($Port, $path, $Slot, $Baud, $Name, $CorruptBlock, $DropAck, $KillAfterBlocks, $CancelAtBlock)
