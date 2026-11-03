@@ -68,7 +68,9 @@ Em Reprodução há três ecrãs: **Leitor** (o principal), **Músicas** e **Men
 
 **Bluetooth**
 - Lista dos dispositivos encontrados, **3 por página** (**Mais n/N** muda de página). O dispositivo ligado fica a verde com "ligado".
-- **Procurar / Parar** inicia e termina a pesquisa (o botão fica cor de laranja enquanto procura).
+- **Procurar / Parar** inicia e termina a pesquisa (o botão fica cor de laranja enquanto procura). Cada pesquisa nova começa com a lista vazia (só fica o dispositivo ligado). Dispositivos sem nome aparecem pelo endereço (`aa:bb:cc:dd:ee:ff`) até o nome chegar.
+- Sem nada ligado, a pesquisa começa ao abrir o ecrã e continua até **Parar**, até se ligar a um dispositivo ou até o ecrã se apagar.
+- Com auscultadores ligados, abrir o ecrã **não** pesquisa; **Procurar** faz uma só pesquisa curta (cerca de 13 s) e pára sozinho. **Pesquisar enquanto a música toca pode causar pequenos cortes no som**, porque o rádio Bluetooth do relógio é partilhado.
 - Põe os auscultadores em modo de emparelhamento e toca no nome deles. O relógio liga-se e memoriza o dispositivo: nas vezes seguintes liga-se sozinho.
 - **Voltar** regressa ao Leitor.
 

@@ -22,16 +22,25 @@ namespace {
 
 constexpr uint8_t kInquirySeconds = 10;  // units of 1.28 s
 
-constexpr size_t kMaxNameRequests = 8;   // pending remote-name requests per search
-
-SemaphoreHandle_t s_lock = nullptr;  // guards s_list, s_needName and s_target
+SemaphoreHandle_t s_lock = nullptr;  // guards s_list, s_names, s_target, s_connAddr*
 btlogic::DeviceList s_list;          // devices of the current search (+ the connected peer)
-std::vector<std::array<uint8_t, 6>> s_needName;  // listed devices still without a name
+btlogic::NameRequests s_names;       // one remote-name attempt per address per search
+uint8_t s_connAddr[ESP_BD_ADDR_LEN];  // address of the connected peer
+bool s_connAddrValid = false;
 std::atomic<bool> s_rnrBusy{false};              // a remote-name request is outstanding
+std::atomic<uint32_t> s_nameRequests{0};         // remote-name requests sent (stats)
 std::atomic<uint32_t> s_rnrAt{0};
 String s_target;                      // name we want to connect to ("" = none)
 std::atomic<bool> s_started{false};
+// Search state. s_scanWanted = a search is wanted (what the UI shows as
+// "Parar"); it stays true in the gaps between inquiry windows. Policy (see
+// btlogic::searchPolicy): while connected a search is ONE window without name
+// requests (inquiry/paging cause audio dropouts); otherwise continuous.
 std::atomic<bool> s_scanWanted{false};
+std::atomic<bool> s_singleShot{false};    // stop after the current inquiry window
+std::atomic<bool> s_namesAllowed{true};   // remote-name requests allowed in this search
+std::atomic<uint32_t> s_searchGen{0};     // bumped by every user search action / connect
+std::atomic<bool> s_ending{false};        // teardown in progress: never restart anything
 std::atomic<bool> s_connectPending{false};  // onName() already dispatched a connect
 String s_savedName;                          // last value written to settings
 String s_connectedName;                      // name of the live peer ("" if none)
@@ -42,6 +51,7 @@ SemaphoreHandle_t s_parked = nullptr;
 std::atomic<bool> s_raw{false};        // "btraw": log every inquiry result
 std::atomic<uint32_t> s_rawUntil{0}, s_rawResults{0}, s_rawListed{0};
 bool s_rawPrevWanted = false;
+uint32_t s_rawGen = 0;
 #endif
 
 void onInquiryResult(esp_bt_gap_cb_param_t* param);
@@ -121,8 +131,9 @@ class WatchSource : public BluetoothA2DPSource {
     connect_to(peer_bd_addr);
   }
 
-  void startDiscovery() {
-    if (!discovery_active) esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, kInquirySeconds, 0);
+  void startDiscovery() {  // BtAppT or BTC task
+    if (!s_ending.load() && !discovery_active)
+      esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, kInquirySeconds, 0);
   }
   void cancelDiscovery() {
     if (discovery_active) esp_bt_gap_cancel_discovery();
@@ -149,6 +160,31 @@ WatchSource s_a2dp;
 // ---- work items executed on BtAppT ---------------------------------------
 void workConnect(uint16_t, void* param) { s_a2dp.connectAddr((const uint8_t*)param); }
 void workStartScan(uint16_t, void*) { s_a2dp.startDiscovery(); }
+// New search (Bluetooth screen opened / "Procurar"). Runs on BtAppT, like
+// connectAddr() and the connection callbacks, so is_connected()/peer are a
+// consistent snapshot when choosing which entry survives the clear.
+void workNewSearch(uint16_t, void* param) {
+  auto trigger = (btlogic::SearchTrigger)(*(uint8_t*)param);
+  bool c = s_a2dp.is_connected();
+  uint8_t peer[ESP_BD_ADDR_LEN];
+  s_a2dp.peer(peer);
+  {
+    Lock l;
+    s_list.clearExcept(c ? peer : nullptr);
+    s_names.reset();
+    s_devVersion.fetch_add(1);
+  }
+  btlogic::SearchPolicy pol = btlogic::searchPolicy(c, trigger);
+  if (!pol.start) {
+    s_scanWanted.store(false);
+    return;
+  }
+  s_singleShot.store(pol.singleShot);
+  s_namesAllowed.store(pol.nameRequests);
+  if (s_scanWanted.load()) s_a2dp.startDiscovery();  // not if "Parar" came meanwhile
+}
+// The connected peer got its real name after connecting unnamed: save it.
+void workSaveName(uint16_t, void*);
 void workStopScan(uint16_t, void*) { s_a2dp.cancelDiscovery(); }
 void workPark(uint16_t, void*) {
   xSemaphoreGive(s_parked);
@@ -156,6 +192,10 @@ void workPark(uint16_t, void*) {
 }
 
 void WatchSource::teardown() {
+  s_ending.store(true);  // first: no callback may restart discovery / name requests
+#ifdef UI_DEBUG
+  s_raw.store(false);
+#endif
   s_scanWanted.store(false);
   if (s_tmr) {
     xTimerStop(s_tmr, pdMS_TO_TICKS(100));
@@ -276,66 +316,77 @@ void onInquiryResult(esp_bt_gap_cb_param_t* param) {
   onName(param->disc_res.bda, name, rssi, true);
 }
 
-// Adds/updates a listed device; connects if it is the requested target.
+// Adds/updates a listed device (fromInquiry=false: name updates only, never
+// inserts); connects if it is the requested target.
 void onName(const uint8_t* addr, const std::string& name, int rssi, bool fromInquiry) {
-  bool match = false;
+  bool match = false, saveName = false;
   uint8_t a[ESP_BD_ADDR_LEN];
   memcpy(a, addr, ESP_BD_ADDR_LEN);
   {
     Lock l;
+    if (!fromInquiry && !s_list.findByAddr(a)) return;
     if (s_list.upsert(a, name, rssi)) {
       s_devVersion.fetch_add(1);
       log_i("bt: listed '%s' rssi %d", btlogic::displayName(name, a).c_str(), rssi);
     }
     const btlogic::DeviceList::Entry* e = s_list.findByAddr(a);
     if (!e) return;  // list full
-    std::string disp = btlogic::displayName(e->name, e->addr);
-    if (fromInquiry && e->name.empty() && s_needName.size() < kMaxNameRequests) {
-      bool queued = false;
-      for (auto& q : s_needName)
-        if (memcmp(q.data(), a, 6) == 0) queued = true;
-      if (!queued) {
-        std::array<uint8_t, 6> q;
-        memcpy(q.data(), a, 6);
-        s_needName.push_back(q);
-      }
+    if (fromInquiry && e->name.empty() && s_namesAllowed.load()) s_names.want(a);
+    if (s_target.length() > 0) {
+      std::string t = s_target.c_str();
+      match = t == btlogic::displayName(e->name, e->addr) || t == e->name || t == btlogic::addrText(a);
     }
-    match = s_target.length() > 0 && (disp == s_target.c_str() || e->name == s_target.c_str());
+    saveName = s_connAddrValid && memcmp(s_connAddr, a, ESP_BD_ADDR_LEN) == 0 && !e->name.empty();
   }
+  if (saveName) s_a2dp.dispatch(workSaveName, nullptr, 0);
   if (match && !s_a2dp.is_connected() && !s_connectPending.exchange(true)) {
     s_scanWanted.store(false);
     if (!s_a2dp.dispatch(workConnect, a, ESP_BD_ADDR_LEN)) s_connectPending.store(false);
   }
 }
 
-// After an inquiry or a remote-name request ended: ask names of unnamed devices
-// one at a time, then keep discovering for as long as a search is wanted.
+// After an inquiry window or a remote-name request ended (BTC task): ask the
+// names of unnamed devices one at a time (once per address per search), then
+// keep discovering while a continuous search is wanted.
 void afterInquiry() {
 #ifdef UI_DEBUG
-  if (s_raw.load() && !s_rnrBusy.load() && (int32_t)(millis() - s_rawUntil.load()) >= 0) {
-    s_raw.store(false);
-    s_scanWanted.store(s_rawPrevWanted);
-    Serial.printf("[btraw] done: %u results, %u listed; devices now:\n", (unsigned)s_rawResults.load(),
-                  (unsigned)s_rawListed.load());
-    for (auto& n : bt::devices()) Serial.printf("[btraw]   '%s'\n", n.c_str());
+  if (s_raw.load() && !s_rnrBusy.load()) {
+    bool userActed = s_searchGen.load() != s_rawGen;
+    if (userActed || (int32_t)(millis() - s_rawUntil.load()) >= 0) {
+      s_raw.store(false);
+      // Restore the previous search state only if nobody stopped/started a
+      // search or connected meanwhile, and Bluetooth is not being torn down.
+      if (!userActed && !s_ending.load()) s_scanWanted.store(s_rawPrevWanted);
+      Serial.printf("[btraw] done%s: %u results, %u listed, %u name requests so far; devices now:\n",
+                    userActed ? " (search changed by the user)" : "", (unsigned)s_rawResults.load(),
+                    (unsigned)s_rawListed.load(), (unsigned)s_nameRequests.load());
+      for (auto& n : bt::devices()) Serial.printf("[btraw]   '%s'\n", n.c_str());
+    }
   }
 #endif
-  if (s_rnrBusy.load() || !s_scanWanted.load() || s_a2dp.connecting()) return;
-  for (;;) {
-    std::array<uint8_t, 6> a;
-    {
-      Lock l;
-      if (s_needName.empty()) break;
-      a = s_needName.front();
-      s_needName.erase(s_needName.begin());
-      // A later inquiry result (EIR / name-only) may already have named it.
-      const btlogic::DeviceList::Entry* e = s_list.findByAddr(a.data());
-      if (!e || !e->name.empty()) continue;
-    }
-    s_rnrAt.store(millis());
-    if (esp_bt_gap_read_remote_name(a.data()) == ESP_OK) {
-      s_rnrBusy.store(true);
-      return;  // continues at ESP_BT_GAP_READ_REMOTE_NAME_EVT
+  if (s_ending.load() || s_rnrBusy.load() || !s_scanWanted.load() || s_a2dp.connecting()) return;
+  if (s_singleShot.load()) {  // connected: one inquiry window only
+    s_singleShot.store(false);
+    s_scanWanted.store(false);
+    log_i("bt: single search window done");
+    return;
+  }
+  if (s_namesAllowed.load() && !s_a2dp.is_connected()) {
+    for (;;) {
+      uint8_t a[ESP_BD_ADDR_LEN];
+      {
+        Lock l;
+        if (!s_names.next(a)) break;  // marks it asked: never retried this search
+        // A later inquiry result (EIR / name-only) may already have named it.
+        const btlogic::DeviceList::Entry* e = s_list.findByAddr(a);
+        if (!e || !e->name.empty()) continue;
+      }
+      s_rnrAt.store(millis());
+      s_nameRequests.fetch_add(1);
+      if (esp_bt_gap_read_remote_name(a) == ESP_OK) {
+        s_rnrBusy.store(true);
+        return;  // continues at ESP_BT_GAP_READ_REMOTE_NAME_EVT
+      }
     }
   }
   s_a2dp.startDiscovery();
@@ -358,26 +409,57 @@ void onConnState(esp_a2d_connection_state_t state, void*) {
       if (!name.length())  // boot auto-reconnect: no scan, the saved device
         name = s_a2dp.isSavedAddress(addr) ? s_savedName : s_target;
       s_connectedName = name;
+      memcpy(s_connAddr, addr, ESP_BD_ADDR_LEN);
+      s_connAddrValid = true;
       // Keep the connected peer visible in the list (it is usually no longer
-      // discoverable once connected).
-      if (!e && s_list.upsert(addr, name.c_str(), -129)) s_devVersion.fetch_add(1);
+      // discoverable once connected). An address-text name is stored as "no
+      // name" so the real one can replace it when it arrives.
+      if (!e) {
+        std::string n = name.c_str();
+        if (n == btlogic::addrText(addr)) n.clear();
+        if (s_list.upsert(addr, n, -129)) s_devVersion.fetch_add(1);
+      }
     }
     s_a2dp.saveAddress(addr);
     if (name.length() && name != s_savedName) {
       settings::setLastBtDevice(name);
       s_savedName = name;
     }
+    // A link exists: stop any search (inquiry/paging would cause dropouts).
+    if (s_scanWanted.load()) {
+      s_scanWanted.store(false);
+      s_singleShot.store(false);
+      s_searchGen.fetch_add(1);
+      s_a2dp.cancelDiscovery();
+    }
   } else if (state == ESP_A2D_CONNECTION_STATE_DISCONNECTED) {
     {
       Lock l;
       s_connectedName = "";
+      s_connAddrValid = false;
     }
     if (s_connects.load() > s_disconnects.load()) s_disconnects.fetch_add(1);
   }
-  // A search that was paused by a connect attempt resumes here.
-  if (s_scanWanted.load() && !s_a2dp.discoveryActive() && !s_rnrBusy.load() &&
-      state != ESP_A2D_CONNECTION_STATE_CONNECTING)
+  // A continuous search that was paused by a connect attempt resumes here.
+  if (s_scanWanted.load() && !s_singleShot.load() && !s_a2dp.discoveryActive() && !s_rnrBusy.load() &&
+      state == ESP_A2D_CONNECTION_STATE_DISCONNECTED)
     s_a2dp.startDiscovery();
+}
+
+void workSaveName(uint16_t, void*) {
+  String name;
+  {
+    Lock l;
+    if (!s_connAddrValid) return;
+    const btlogic::DeviceList::Entry* e = s_list.findByAddr(s_connAddr);
+    if (!e || e->name.empty()) return;
+    name = e->name.c_str();
+    s_connectedName = name;
+  }
+  if (name != s_savedName) {
+    settings::setLastBtDevice(name);
+    s_savedName = name;
+  }
 }
 
 void onAudioState(esp_a2d_audio_state_t state, void*) {
@@ -400,10 +482,14 @@ void begin() {
     s_target = last;
     s_connectedName = "";
     s_list.clearExcept(nullptr);
-    s_needName.clear();
+    s_names.reset();
+    s_connAddrValid = false;
     s_devVersion.fetch_add(1);
   }
   s_rnrBusy.store(false);
+  s_ending.store(false);
+  s_singleShot.store(false);
+  s_namesAllowed.store(true);
   s_a2dp.set_local_name("T-Watch MP3");
   s_a2dp.set_task_core(0);          // library default is core 1 (decode core)
   s_a2dp.set_event_stack_size(4096);
@@ -420,29 +506,36 @@ void begin() {
         s_a2dp.hasAddress() ? "yes" : "no");
 }
 
+namespace {
+void newSearch(btlogic::SearchTrigger t, bool wantedNow) {
+  s_searchGen.fetch_add(1);
+  if (s_rnrBusy.load() && millis() - s_rnrAt.load() > 15000) s_rnrBusy.store(false);  // lost event
+  s_singleShot.store(false);
+  s_scanWanted.store(wantedNow);  // the UI shows "Parar" at once; corrected by workNewSearch
+  uint8_t trig = (uint8_t)t;
+  s_a2dp.dispatch(workNewSearch, &trig, 1);
+}
+}  // namespace
+
 void startScan() {
   if (!s_started.load()) return;
-  // Every new search starts from an empty list, except the connected peer.
-  {
-    Lock l;
-    uint8_t peer[ESP_BD_ADDR_LEN];
-    s_a2dp.peer(peer);
-    s_list.clearExcept(s_a2dp.is_connected() ? peer : nullptr);
-    s_needName.clear();
-    s_devVersion.fetch_add(1);
-  }
-  if (s_rnrBusy.load() && millis() - s_rnrAt.load() > 15000) s_rnrBusy.store(false);  // lost event
-  s_scanWanted.store(true);
-  s_a2dp.dispatch(workStartScan, nullptr, 0);
+  newSearch(btlogic::SearchTrigger::Button, true);
 }
 
-void stopScan() {
+void screenOpened() {
   if (!s_started.load()) return;
+  newSearch(btlogic::SearchTrigger::EnterScreen, !s_a2dp.is_connected());
+}
+
+void stopScan() {  // only ever stops (also in the gap between inquiry windows)
+  if (!s_started.load()) return;
+  s_searchGen.fetch_add(1);
   s_scanWanted.store(false);
+  s_singleShot.store(false);
   s_a2dp.dispatch(workStopScan, nullptr, 0);
 }
 
-bool scanning() { return s_started.load() && s_a2dp.is_discovery_active(); }
+bool scanning() { return s_started.load() && s_scanWanted.load(); }
 
 std::vector<String> devices() {
   std::vector<String> out;
@@ -455,12 +548,13 @@ std::vector<String> devices() {
 void connectTo(const String& name) {
   if (!s_started.load() || name.length() == 0) return;
   s_connectPending.store(false);
+  s_searchGen.fetch_add(1);
   bool known = false;
   esp_bd_addr_t addr;
   {
     Lock l;
     s_target = name;
-    const btlogic::DeviceList::Entry* e = s_list.findByDisplay(name.c_str());
+    const btlogic::DeviceList::Entry* e = s_list.findTarget(name.c_str());
     if (e) {
       memcpy(addr, e->addr, ESP_BD_ADDR_LEN);
       known = true;
@@ -468,6 +562,7 @@ void connectTo(const String& name) {
   }
   if (known) {
     s_scanWanted.store(false);
+    s_singleShot.store(false);
     if (!s_a2dp.dispatch(workConnect, addr, ESP_BD_ADDR_LEN)) log_w("bt: connect request dropped");
   } else {
     // onName() connects when the name shows up.
@@ -482,6 +577,10 @@ bool connected() { return s_started.load() && s_a2dp.is_connected(); }
 String connectedName() {
   if (!s_lock) return String();
   Lock l;
+  if (s_connAddrValid) {  // by address: follows a name that arrives after connecting
+    const btlogic::DeviceList::Entry* e = s_list.findByAddr(s_connAddr);
+    if (e) return btlogic::displayName(e->name, e->addr).c_str();
+  }
   return s_connectedName.length() ? s_connectedName : s_target;
 }
 
@@ -493,7 +592,8 @@ void end() {
   {
     Lock l;
     s_list.clearExcept(nullptr);
-    s_needName.clear();
+    s_names.reset();
+    s_connAddrValid = false;
     s_devVersion.fetch_add(1);
     s_connectedName = "";
   }
@@ -510,6 +610,9 @@ bool debugRawScan(uint32_t secs) {
   if (secs < 5) secs = 5;
   if (secs > 120) secs = 120;
   s_rawPrevWanted = s_scanWanted.load();
+  s_rawGen = s_searchGen.load();
+  s_singleShot.store(false);
+  s_namesAllowed.store(!s_a2dp.is_connected());
   s_rawResults.store(0);
   s_rawListed.store(0);
   s_rawUntil.store(millis() + secs * 1000);
@@ -522,7 +625,8 @@ bool debugRawScan(uint32_t secs) {
 #endif
 
 Stats stats() {
-  return Stats{s_connects.load(), s_disconnects.load(), s_audioStarts.load(), s_started.load()};
+  return Stats{s_connects.load(), s_disconnects.load(), s_audioStarts.load(), s_started.load(),
+               s_nameRequests.load()};
 }
 
 }  // namespace bt

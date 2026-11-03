@@ -409,6 +409,62 @@ void test_bt_list_cleared_on_new_search() {
   TEST_ASSERT_EQUAL_STRING("TV", ui[0].c_str());
 }
 
+void test_bt_search_policy() {
+  using btlogic::SearchTrigger;
+  // not connected: continuous search with name requests (screen and button)
+  for (SearchTrigger t : {SearchTrigger::EnterScreen, SearchTrigger::Button}) {
+    btlogic::SearchPolicy p = btlogic::searchPolicy(false, t);
+    TEST_ASSERT_TRUE(p.start);
+    TEST_ASSERT_TRUE(p.continuous);
+    TEST_ASSERT_TRUE(p.nameRequests);
+    TEST_ASSERT_FALSE(p.singleShot);
+  }
+  // connected, screen opened: no search at all
+  btlogic::SearchPolicy p = btlogic::searchPolicy(true, SearchTrigger::EnterScreen);
+  TEST_ASSERT_FALSE(p.start);
+  TEST_ASSERT_FALSE(p.continuous);
+  TEST_ASSERT_FALSE(p.nameRequests);
+  // connected, "Procurar": one window, no name requests
+  p = btlogic::searchPolicy(true, SearchTrigger::Button);
+  TEST_ASSERT_TRUE(p.start);
+  TEST_ASSERT_FALSE(p.continuous);
+  TEST_ASSERT_FALSE(p.nameRequests);
+  TEST_ASSERT_TRUE(p.singleShot);
+}
+
+void test_bt_name_requests_once_per_address() {
+  btlogic::NameRequests q(2, 3);
+  uint8_t out[6];
+  TEST_ASSERT_TRUE(q.want(kA));
+  TEST_ASSERT_FALSE(q.want(kA));  // already queued
+  TEST_ASSERT_TRUE(q.next(out));
+  TEST_ASSERT_EQUAL_MEMORY(kA, out, 6);
+  // the request for A failed; A shows up unnamed again on the next inquiry:
+  TEST_ASSERT_FALSE(q.want(kA));  // never asked twice in one search
+  TEST_ASSERT_TRUE(q.want(kB));
+  TEST_ASSERT_TRUE(q.want(kC));
+  uint8_t kD[6] = {1, 2, 3, 4, 5, 6};
+  TEST_ASSERT_FALSE(q.want(kD));  // queue cap (2) / total cap (3)
+  TEST_ASSERT_TRUE(q.next(out));
+  TEST_ASSERT_TRUE(q.next(out));
+  TEST_ASSERT_FALSE(q.next(out));
+  TEST_ASSERT_EQUAL(3, (int)q.asked());
+  TEST_ASSERT_FALSE(q.want(kD));  // total cap: at most 3 attempts per search
+  q.reset();                      // new search
+  TEST_ASSERT_TRUE(q.want(kA));
+}
+
+void test_bt_connect_target_by_name_or_address() {
+  btlogic::DeviceList l;
+  l.upsert(kA, "", -50);
+  TEST_ASSERT_TRUE(l.findTarget("aa:bb:cc:00:00:01") != nullptr);  // tapped while unnamed
+  l.upsert(kA, "Buds", -50);                                        // name arrived meanwhile
+  TEST_ASSERT_TRUE(l.findTarget("aa:bb:cc:00:00:01") != nullptr);  // still connectable
+  TEST_ASSERT_TRUE(l.findTarget("Buds") != nullptr);
+  TEST_ASSERT_TRUE(l.findTarget("Other") == nullptr);
+  TEST_ASSERT_TRUE(l.findTarget("") == nullptr);
+}
+
 int runAll() {
   UNITY_BEGIN();
   RUN_TEST(test_layout_player);
@@ -434,6 +490,9 @@ int runAll() {
   RUN_TEST(test_bt_cod_filter);
   RUN_TEST(test_bt_list_names_late_and_unnamed);
   RUN_TEST(test_bt_list_cleared_on_new_search);
+  RUN_TEST(test_bt_search_policy);
+  RUN_TEST(test_bt_name_requests_once_per_address);
+  RUN_TEST(test_bt_connect_target_by_name_or_address);
   return UNITY_END();
 }
 

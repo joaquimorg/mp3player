@@ -114,4 +114,48 @@ const DeviceList::Entry* DeviceList::findByDisplay(const std::string& display) c
   return nullptr;
 }
 
+const DeviceList::Entry* DeviceList::findTarget(const std::string& text) const {
+  if (text.empty()) return nullptr;
+  for (const auto& e : v_)
+    if (displayName(e.name, e.addr) == text || e.name == text || addrText(e.addr) == text) return &e;
+  return nullptr;
+}
+
+SearchPolicy searchPolicy(bool connected, SearchTrigger trigger) {
+  if (connected) {
+    if (trigger == SearchTrigger::EnterScreen) return SearchPolicy{false, false, false, false};
+    return SearchPolicy{true, false, false, true};
+  }
+  return SearchPolicy{true, true, true, false};
+}
+
+bool NameRequests::has(const std::vector<Addr>& v, const uint8_t a[6]) {
+  for (const auto& x : v)
+    if (memcmp(x.a, a, 6) == 0) return true;
+  return false;
+}
+
+void NameRequests::reset() {
+  queue_.clear();
+  asked_.clear();
+}
+
+bool NameRequests::want(const uint8_t addr[6]) {
+  if (has(queue_, addr) || has(asked_, addr)) return false;
+  if (queue_.size() >= maxQueued_ || asked_.size() + queue_.size() >= maxAsked_) return false;
+  Addr x;
+  memcpy(x.a, addr, 6);
+  queue_.push_back(x);
+  return true;
+}
+
+bool NameRequests::next(uint8_t out[6]) {
+  if (queue_.empty()) return false;
+  Addr x = queue_.front();
+  queue_.erase(queue_.begin());
+  asked_.push_back(x);
+  memcpy(out, x.a, 6);
+  return true;
+}
+
 }  // namespace btlogic

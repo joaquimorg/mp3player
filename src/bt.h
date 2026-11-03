@@ -12,10 +12,15 @@
 namespace bt {
 
 void begin();                       // idempotent
-void startScan();                   // clears the list (keeps the connected peer), then
-                                    // keeps scanning until stopScan()/connectTo()
-void stopScan();
-bool scanning();
+// Searching. Inquiry and name paging cause audio dropouts while streaming, so
+// (btlogic::searchPolicy): when NOT connected a search is continuous (with one
+// remote-name request per unnamed device); when connected "Procurar" runs ONE
+// ~12.8 s inquiry window without name requests and stops by itself, and
+// opening the screen does not search. A new connection stops any search.
+void screenOpened();                // Bluetooth screen opened: new list, search if not connected
+void startScan();                   // "Procurar": clears the list (keeps the connected peer)
+void stopScan();                    // only ever stops
+bool scanning();                    // a search is wanted (true between inquiry windows too)
 std::vector<String> devices();      // audio devices of the current search (+ connected
                                     // peer); unnamed ones show as "aa:bb:cc:dd:ee:ff"
 uint32_t devicesVersion();          // changes whenever devices() would return something new
@@ -29,6 +34,7 @@ struct Stats {
   uint32_t disconnects;  // times it dropped to DISCONNECTED after a connect
   uint32_t audioStarts;  // ESP_A2D_AUDIO_STATE_STARTED events
   bool started;
+  uint32_t nameRequests;  // remote-name requests sent since boot
 };
 Stats stats();
 

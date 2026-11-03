@@ -448,7 +448,7 @@ void tapMenu(uilogic::MenuHit h, uint32_t now) {
     case MenuHit::Bluetooth:
       s_btPage = 0;
       setPending("", now);
-      bt::startScan();
+      bt::screenOpened();  // fresh list; searches only when nothing is connected
       break;
     case MenuHit::Program:
       if (s_volDirty) saveVolume();  // the player is about to be torn down
@@ -909,6 +909,14 @@ void debugSerial() {
         }
         Serial.printf("[ui] i2c bus %d:%s\n", bus, found.c_str());
       }
+    } else if (c == "bt") {  // search state + list
+      bt::Stats st = bt::stats();
+      auto d = bt::devices();
+      Serial.printf("[bt] t=%us search %s, connected %d '%s', name requests %u, %u devices:",
+                    (unsigned)(millis() / 1000), bt::scanning() ? "on" : "off", bt::connected(),
+                    bt::connectedName().c_str(), (unsigned)st.nameRequests, (unsigned)d.size());
+      for (auto& n : d) Serial.printf(" '%s'", n.c_str());
+      Serial.println();
     } else if (c == "btraw" || c.startsWith("btraw ")) {  // log every BT inquiry result
       uint32_t secs = c.length() > 6 ? (uint32_t)c.substring(6).toInt() : 30;
       if (bt::debugRawScan(secs))
@@ -917,7 +925,7 @@ void debugSerial() {
       else
         Serial.println("[btraw] Bluetooth is off: switch to Reproducao first");
     } else if (c.length()) {
-      Serial.println("[ui] ? tap <x> <y> | screen | heap | scan | reboot | stall | soak | btraw [secs]");
+      Serial.println("[ui] ? tap <x> <y> | screen | heap | scan | reboot | stall | soak | bt | btraw [secs]");
     }
   }
 }
@@ -971,7 +979,12 @@ void loop() {
   switch (s_touch.update(now, down, x, y)) {
     case uilogic::TouchTracker::Event::Tap: onTap(s_touch.tapX(), s_touch.tapY(), now); break;
     case uilogic::TouchTracker::Event::Wake: backlight(true); break;
-    case uilogic::TouchTracker::Event::Sleep: backlight(false); break;
+    case uilogic::TouchTracker::Event::Sleep:
+      backlight(false);
+      // Screen off on the Bluetooth screen: stop the search (it is not resumed
+      // on wake; the button then shows "Procurar").
+      if (s_screen == Screen::Bluetooth && bt::scanning()) bt::stopScan();
+      break;
     default: break;
   }
   if (!s_touch.down()) onRelease();
