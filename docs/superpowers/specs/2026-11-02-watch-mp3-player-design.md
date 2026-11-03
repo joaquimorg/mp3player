@@ -52,7 +52,7 @@ Uma pasta portátil, sem Python nem instalador, para Windows 11:
 - A recodificação garante um formato aceite pelo descodificador e que cabe nos 4 slots.
 
 ## Orçamento de espaço
-~12 MB de dados / 4 slots = ~3 MB por slot, ou seja ~3,5 minutos a 112 kbps por slot. A ferramenta avisa se o ficheiro for demasiado grande, e a página recusa uploads que não cabem.
+~12 MB de dados partilhados pelos 4 slots (≈14 minutos a 112 kbps no total). Não há limite fixo por música (alterado após a implementação, a pedido do utilizador): um ficheiro cabe se `tamanho + 16 KiB de margem <= espaço livre`. Substituir uma música exige espaço para a antiga e a nova ao mesmo tempo, por isso a página e a ferramenta pedem para apagar o slot primeiro. A ferramenta recodifica a 64 kbps mono quando o ficheiro não cabe, e a página recusa uploads que não cabem.
 
 ## Riscos a verificar no hardware
 - Estabilidade do A2DP com o ecrã e o descodificador a competir pela CPU (descodificar no core 1, Bluetooth no core 0).
