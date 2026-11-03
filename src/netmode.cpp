@@ -7,6 +7,7 @@
 #include <lwip/tcpip.h>
 #include <lwip/priv/tcp_priv.h>
 #endif
+#include <ESPmDNS.h>
 #include <WebServer.h>
 #include <uri/UriBraces.h>
 #include <atomic>
@@ -32,6 +33,7 @@ const char* kSlotPrefix = "/api/slot/";
 
 enum class State { Off, Connecting, Sta, Ap };
 State s_state = State::Off;
+bool s_mdns = false;
 uint32_t s_t0 = 0;
 int s_attempt = 0;  // join attempt in progress (1-based)
 uint32_t s_rebootAt = 0;
@@ -383,7 +385,22 @@ void startServer(bool setupMode) {
   s_server->begin();
 }
 
+void stopMdns() {
+  if (s_mdns) MDNS.end();
+  s_mdns = false;
+}
+
+void startMdns() {
+  stopMdns();
+  // twatch.local lets the PC app find the watch without typing the IP (Windows 10/11 resolves .local).
+  if (MDNS.begin("twatch")) {
+    MDNS.addService("http", "tcp", 80);
+    s_mdns = true;
+  }
+}
+
 void startAp() {
+  stopMdns();
   if (s_server) s_server->stop();
   s_server.reset();
   WiFi.disconnect(true);
@@ -433,6 +450,7 @@ void loop() {
     case State::Connecting:
       if (WiFi.status() == WL_CONNECTED) {
         startServer(false);
+        startMdns();
         s_state = State::Sta;
         DBG_PRINTF("[net] connected, http://%s/ (heap %u)\n", WiFi.localIP().toString().c_str(),
                       (unsigned)ESP.getFreeHeap());
@@ -477,6 +495,7 @@ void loop() {
 
 void end() {
   resetUpload();
+  stopMdns();
   if (s_server) s_server->stop();
   s_server.reset();
   s_rebootAt = 0;
