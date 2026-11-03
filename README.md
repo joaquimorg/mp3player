@@ -83,7 +83,8 @@ Em Reprodução há três ecrãs: **Leitor** (o principal), **Músicas** e **Men
 
 ### Botão lateral e ecrã
 
-- O ecrã apaga-se sozinho ao fim de 15 s sem toques.
+- **A bateria**: o ecrã apaga-se sozinho ao fim de 15 s sem toques.
+- **Ligado por USB** (cabo ligado ao PC ou a um carregador): ao fim de 15 s o ecrã **só escurece** e não se apaga. Um toque volta ao brilho normal e carrega logo no botão que tocaste (não é preciso "acordar" primeiro). Se tirares o cabo com o ecrã escurecido, ele apaga-se; se ligares o cabo com o ecrã apagado pelo tempo, volta escurecido. O botão lateral continua a apagar o ecrã de vez, nos dois casos.
 - O **botão lateral** (clique curto) liga/desliga o ecrã.
 - Com o ecrã apagado, o **primeiro toque só acorda o ecrã**; não carrega em nenhum botão.
 - **Para desligar completamente**: mantém o botão lateral premido cerca de **6 s**. Para ligar de novo, um clique no botão lateral.

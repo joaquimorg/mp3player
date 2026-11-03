@@ -357,6 +357,72 @@ void test_touch_sleep_and_wake_swallowed() {
   TEST_ASSERT_TRUE(t.update(20300, true, 5, 5) == TouchTracker::Event::Tap);       // next press works
 }
 
+// On USB power the screen only dims after the timeout (never turns off); on battery it turns off.
+void test_touch_usb_dims_instead_of_sleeping() {
+  TouchTracker t(15000);
+  t.update(0, false, 0, 0);
+  TEST_ASSERT_TRUE(t.setUsb(true, 100) == TouchTracker::Event::None);   // screen is on and active: nothing to do
+  TEST_ASSERT_TRUE(t.setUsb(true, 200) == TouchTracker::Event::None);   // same state again
+  TEST_ASSERT_TRUE(t.update(14999, false, 0, 0) == TouchTracker::Event::None);
+  TEST_ASSERT_TRUE(t.update(15000, false, 0, 0) == TouchTracker::Event::Dim);
+  TEST_ASSERT_TRUE(t.screenOn());
+  TEST_ASSERT_TRUE(t.dimmed());
+  TEST_ASSERT_TRUE(t.update(16000, false, 0, 0) == TouchTracker::Event::None);   // only once
+  TEST_ASSERT_TRUE(t.update(90000, false, 0, 0) == TouchTracker::Event::None);   // never sleeps on USB
+  TEST_ASSERT_TRUE(t.screenOn());
+  // a touch while dimmed brightens and is a normal tap (not swallowed like a wake-up)
+  TEST_ASSERT_TRUE(t.update(100000, true, 7, 9) == TouchTracker::Event::Tap);
+  TEST_ASSERT_FALSE(t.dimmed());
+  TEST_ASSERT_EQUAL_INT(7, t.tapX());
+  TEST_ASSERT_TRUE(t.update(100050, false, 0, 0) == TouchTracker::Event::None);
+  TEST_ASSERT_TRUE(t.update(115050, false, 0, 0) == TouchTracker::Event::Dim);   // dims again after a new timeout
+  TEST_ASSERT_TRUE(t.dimmed());
+}
+
+void test_touch_usb_unplugged_while_dimmed_sleeps() {
+  TouchTracker t(15000);
+  t.setUsb(true, 0);
+  t.update(0, false, 0, 0);
+  TEST_ASSERT_TRUE(t.update(15000, false, 0, 0) == TouchTracker::Event::Dim);
+  TEST_ASSERT_TRUE(t.setUsb(false, 16000) == TouchTracker::Event::Sleep);
+  TEST_ASSERT_FALSE(t.screenOn());
+  TEST_ASSERT_FALSE(t.dimmed());
+  TEST_ASSERT_TRUE(t.setUsb(false, 17000) == TouchTracker::Event::None);
+  TEST_ASSERT_TRUE(t.update(20000, true, 1, 1) == TouchTracker::Event::Wake);   // battery: the first touch only wakes
+}
+
+void test_touch_usb_plugged_while_timed_out() {
+  TouchTracker t(15000);
+  t.update(0, false, 0, 0);
+  TEST_ASSERT_TRUE(t.update(15000, false, 0, 0) == TouchTracker::Event::Sleep);  // battery timeout
+  TEST_ASSERT_TRUE(t.setUsb(true, 20000) == TouchTracker::Event::Dim);          // cable plugged: back, dimmed
+  TEST_ASSERT_TRUE(t.screenOn());
+  TEST_ASSERT_TRUE(t.dimmed());
+}
+
+void test_touch_usb_plugged_after_button_off_stays_off() {
+  TouchTracker t(15000);
+  t.update(0, false, 0, 0);
+  t.sleep();  // side button
+  TEST_ASSERT_TRUE(t.setUsb(true, 1000) == TouchTracker::Event::None);
+  TEST_ASSERT_FALSE(t.screenOn());
+  t.wake(2000);  // side button again
+  TEST_ASSERT_TRUE(t.screenOn());
+  TEST_ASSERT_FALSE(t.dimmed());
+}
+
+void test_touch_button_wake_clears_dim() {
+  TouchTracker t(15000);
+  t.setUsb(true, 0);
+  t.update(0, false, 0, 0);
+  t.update(15000, false, 0, 0);
+  TEST_ASSERT_TRUE(t.dimmed());
+  t.wake(16000);
+  TEST_ASSERT_FALSE(t.dimmed());
+  TEST_ASSERT_TRUE(t.update(30999, false, 0, 0) == TouchTracker::Event::None);
+  TEST_ASSERT_TRUE(t.update(31000, false, 0, 0) == TouchTracker::Event::Dim);
+}
+
 void test_touch_hold_keeps_screen_on() {
   TouchTracker t(15000);
   t.update(0, true, 1, 1);
@@ -529,6 +595,9 @@ int runAll() {
   RUN_TEST(test_boot_mode);
   RUN_TEST(test_touch_tap_once_per_press);
   RUN_TEST(test_touch_sleep_and_wake_swallowed);
+  RUN_TEST(test_touch_usb_dims_instead_of_sleeping); RUN_TEST(test_touch_usb_unplugged_while_dimmed_sleeps);
+  RUN_TEST(test_touch_usb_plugged_while_timed_out); RUN_TEST(test_touch_usb_plugged_after_button_off_stays_off);
+  RUN_TEST(test_touch_button_wake_clears_dim);
   RUN_TEST(test_touch_hold_keeps_screen_on);
   RUN_TEST(test_touch_button_wake_and_wraparound);
   RUN_TEST(test_bt_cod_filter);

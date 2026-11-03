@@ -28,6 +28,8 @@ using uilogic::View;
 
 // ---- look -------------------------------------------------------------------
 constexpr uint8_t kBrightness = 110;  // of 255: modest, readable indoors
+constexpr uint8_t kDimBrightness = 20;  // on USB power the screen only dims to this after the timeout
+constexpr uint32_t kUsbPollMs = 1000;   // how often the AXP202 is asked whether USB power is present
 constexpr uint32_t kBlankMs = 15000;
 constexpr uint32_t kPollMs = 150;      // model refresh while the screen is on
 constexpr uint32_t kVolSaveMs = 2000;  // volume is written to NVS after this idle time
@@ -82,6 +84,11 @@ View s_view = View::Player;  // view of Reprodução (when not busy / not in Pro
 bool s_dirty = true;
 uint32_t s_lastPoll = 0;
 uint32_t s_lastBtn = 0;
+uint32_t s_usbPollAt = 0;
+bool s_dimApplied = false;  // the panel is currently at kDimBrightness
+#ifdef UI_DEBUG
+int s_usbForce = -1;        // debug console: usb 0|1|auto (-1 = ask the AXP202)
+#endif
 uint32_t s_lastSig = 0;
 
 // Transfer overlay bookkeeping: what was drawn last (0: normal screens).
@@ -933,6 +940,7 @@ void onRelease() {
 }
 
 void backlight(bool on) {
+  s_dimApplied = false;
   if (on) {
     s_w->setBrightness(kBrightness);
     s_w->openBL();
@@ -941,6 +949,50 @@ void backlight(bool on) {
     s_w->closeBL();
   }
   DBG_PRINTF("[ui] backlight %s\n", on ? "on" : "off");
+}
+
+// USB power (VBUS) present? The AXP202 knows; the debug console can override it.
+bool usbPowered() {
+#ifdef UI_DEBUG
+  if (s_usbForce >= 0) return s_usbForce == 1;
+#endif
+  return s_w->power->isVBUSPlug();
+}
+
+// Brightness follows the tracker: dimmed (USB, after the timeout) or normal.
+void applyDim() {
+  bool d = s_touch.screenOn() && s_touch.dimmed();
+  if (d == s_dimApplied) return;
+  s_dimApplied = d;
+  s_w->setBrightness(d ? kDimBrightness : kBrightness);
+  DBG_PRINTF("[ui] screen %s\n", d ? "dimmed" : "bright");
+}
+
+// Screen switched off (timeout on battery, or USB unplugged while dimmed).
+void screenOff() {
+  backlight(false);
+  // Screen off on the Bluetooth screen: stop the search (it is not resumed on wake; the button then shows
+  // "Procurar").
+  if (s_screen == Screen::Bluetooth && bt::scanning()) bt::stopScan();
+}
+
+// Cable plugged/unplugged: dim instead of sleeping on USB power.
+void pollUsb(uint32_t now) {
+  if (now - s_usbPollAt < kUsbPollMs) return;
+  s_usbPollAt = now;
+  bool usb = usbPowered();
+  uilogic::TouchTracker::Event e = s_touch.setUsb(usb, now);
+  if (e == uilogic::TouchTracker::Event::Dim) {  // plugged while the screen was off by timeout: back, dimmed
+    s_w->openBL();
+    s_dirty = true;
+  } else if (e == uilogic::TouchTracker::Event::Sleep) {
+    screenOff();
+  }
+  static int lastUsb = -1;
+  if (lastUsb != (usb ? 1 : 0)) {  // log changes only
+    lastUsb = usb ? 1 : 0;
+    DBG_PRINTF("[ui] usb power %d\n", lastUsb);
+  }
 }
 
 // Side button (AXP202 PEK short press): toggles the screen.
@@ -1025,6 +1077,11 @@ void debugLine(const char* line) {
     } else if (c == "screen") {
       DBG_PRINTF("[ui] --- %s (backlight %s, busy %d)\n%s[ui] ---\n", screenName(s_screen),
                     s_touch.screenOn() ? "on" : "off", s_host.busy(), s_desc.c_str());
+    } else if (c.startsWith("usb ")) {  // pretend USB power is present/absent (or ask the AXP202 again)
+      String a = c.substring(4);
+      s_usbForce = a == "1" ? 1 : a == "0" ? 0 : -1;
+      s_usbPollAt = 0;
+      DBG_PRINTF("[ui] usb override %d\n", s_usbForce);
     } else if (c == "heap") {
       DBG_PRINTF("[ui] heap free %u internal %u psram %u\n", (unsigned)ESP.getFreeHeap(),
                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
@@ -1121,12 +1178,14 @@ void begin(TTGOClass* watch, const Host& host) {
   int16_t x, y;
   readTouch(x, y, now);  // detect an absent controller at boot (shows the hint)
   backlight(true);
+  s_touch.setUsb(usbPowered(), now);
   refresh(now);
 }
 
 void loop() {
   uint32_t now = millis();
   pollButton(now);
+  pollUsb(now);
 #ifdef UI_DEBUG
   uint32_t tb = millis() - now;
 #endif
@@ -1154,14 +1213,10 @@ void loop() {
   switch (s_touch.update(now, down, x, y)) {
     case uilogic::TouchTracker::Event::Tap: onTap(s_touch.tapX(), s_touch.tapY(), now); break;
     case uilogic::TouchTracker::Event::Wake: backlight(true); break;
-    case uilogic::TouchTracker::Event::Sleep:
-      backlight(false);
-      // Screen off on the Bluetooth screen: stop the search (it is not resumed
-      // on wake; the button then shows "Procurar").
-      if (s_screen == Screen::Bluetooth && bt::scanning()) bt::stopScan();
-      break;
-    default: break;
+    case uilogic::TouchTracker::Event::Sleep: screenOff(); break;
+    default: break;  // Dim: applyDim() below lowers the brightness
   }
+  applyDim();
   if (!s_touch.down()) onRelease();
   // Debounced volume save, whatever screen is shown (player::volume() stays
   // valid after player::end()).

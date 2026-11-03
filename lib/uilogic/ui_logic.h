@@ -165,14 +165,21 @@ bool bootIntoProgram(bool programFlag, bool softwareReset);
 // Feed update() with the raw touch state every loop. A press while the screen
 // is off only wakes it (Event::Wake) and is swallowed until release. A press
 // while on gives one Event::Tap (at the press position); nothing more until
-// the finger is lifted. Event::Sleep once, after timeoutMs without touch.
+// the finger is lifted. After timeoutMs without touch: on battery Event::Sleep
+// once (screen off); on USB power (setUsb) Event::Dim once instead: the screen
+// stays on, only dimmed (dimmed() is true until the next touch/wake), and a
+// touch while dimmed is a normal Tap.
 class TouchTracker {
  public:
-  enum class Event { None, Tap, Wake, Sleep };
+  enum class Event { None, Tap, Wake, Sleep, Dim };
   explicit TouchTracker(uint32_t timeoutMs = 15000) : timeout_(timeoutMs) {}
   Event update(uint32_t now, bool down, int x, int y);
   void wake(uint32_t now);   // external wake (side button)
-  void sleep() { on_ = false; }  // external blank (side button)
+  void sleep() { on_ = false; dimmed_ = false; offByTimeout_ = false; }  // external blank (side button)
+  // USB power appeared/disappeared. Plugged while the screen was off by timeout: Dim (back on, dimmed).
+  // Unplugged while dimmed: Sleep (the timeout has long passed). Otherwise None.
+  Event setUsb(bool usb, uint32_t now);
+  bool dimmed() const { return dimmed_; }
   void activity(uint32_t now) { last_ = now; }
   bool screenOn() const { return on_; }
   bool down() const { return down_; }  // a press is in progress (for pressed-state feedback)
@@ -184,6 +191,9 @@ class TouchTracker {
   uint32_t last_ = 0;
   bool on_ = true;
   bool down_ = false;
+  bool usb_ = false;
+  bool dimmed_ = false;
+  bool offByTimeout_ = false;  // the screen is off because of the timeout (not the side button)
   int tx_ = 0, ty_ = 0;
 };
 

@@ -304,16 +304,20 @@ bool bootIntoProgram(bool programFlag, bool softwareReset) { return programFlag 
 // ---- touch ------------------------------------------------------------------
 void TouchTracker::wake(uint32_t now) {
   on_ = true;
+  dimmed_ = false;
+  offByTimeout_ = false;
   last_ = now;
 }
 
 TouchTracker::Event TouchTracker::update(uint32_t now, bool down, int x, int y) {
   if (down) {
     last_ = now;
+    dimmed_ = false;  // any touch brightens a dimmed screen
     if (down_) return Event::None;  // still the same press
     down_ = true;
     if (!on_) {
       on_ = true;
+      offByTimeout_ = false;
       return Event::Wake;  // swallowed until release
     }
     tx_ = x;
@@ -322,7 +326,32 @@ TouchTracker::Event TouchTracker::update(uint32_t now, bool down, int x, int y) 
   }
   down_ = false;
   if (on_ && (uint32_t)(now - last_) >= timeout_) {
+    if (usb_) {  // on USB power the screen only dims
+      if (dimmed_) return Event::None;
+      dimmed_ = true;
+      return Event::Dim;
+    }
     on_ = false;
+    offByTimeout_ = true;
+    return Event::Sleep;
+  }
+  return Event::None;
+}
+
+TouchTracker::Event TouchTracker::setUsb(bool usb, uint32_t now) {
+  (void)now;
+  if (usb == usb_) return Event::None;
+  usb_ = usb;
+  if (usb && !on_ && offByTimeout_) {
+    on_ = true;
+    dimmed_ = true;
+    offByTimeout_ = false;
+    return Event::Dim;
+  }
+  if (!usb && on_ && dimmed_) {
+    on_ = false;
+    dimmed_ = false;
+    offByTimeout_ = true;
     return Event::Sleep;
   }
   return Event::None;
