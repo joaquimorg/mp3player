@@ -33,6 +33,7 @@ std::atomic<bool> s_connectPending{false};  // onSsid already dispatched a conne
 String s_savedName;                          // last value written to settings
 String s_connectedName;                      // name of the live peer ("" if none)
 std::atomic<uint32_t> s_connects{0}, s_disconnects{0}, s_audioStarts{0};
+std::atomic<uint32_t> s_devVersion{0};  // bumped on every change of s_devices
 SemaphoreHandle_t s_parked = nullptr;
 
 struct Lock {
@@ -183,6 +184,7 @@ bool onSsid(const char* name, esp_bd_addr_t addr, int rssi) {
     bool found = false;
     for (auto& d : s_devices) {
       if (memcmp(d.addr, addr, ESP_BD_ADDR_LEN) == 0) {
+        if (d.name != name) s_devVersion.fetch_add(1);
         d.name = name;
         d.rssi = rssi;
         found = true;
@@ -195,6 +197,7 @@ bool onSsid(const char* name, esp_bd_addr_t addr, int rssi) {
       memcpy(d.addr, addr, ESP_BD_ADDR_LEN);
       d.rssi = rssi;
       s_devices.push_back(d);
+      s_devVersion.fetch_add(1);
       log_i("bt: found '%s' rssi %d", name, rssi);
     }
     match = s_target.length() > 0 && s_target == name;
@@ -258,6 +261,7 @@ void begin() {
     s_target = last;
     s_connectedName = "";
     s_devices.clear();
+    s_devVersion.fetch_add(1);
   }
   s_a2dp.set_local_name("T-Watch MP3");
   s_a2dp.set_task_core(0);          // library default is core 1 (decode core)
@@ -323,6 +327,8 @@ void connectTo(const String& name) {
   }
 }
 
+uint32_t devicesVersion() { return s_devVersion.load(); }
+
 bool connected() { return s_started.load() && s_a2dp.is_connected(); }
 
 String connectedName() {
@@ -339,6 +345,7 @@ void end() {
   {
     Lock l;
     s_devices.clear();
+    s_devVersion.fetch_add(1);
     s_connectedName = "";
   }
   log_i("bt: stopped, controller status %d", esp_bt_controller_get_status());

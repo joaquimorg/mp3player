@@ -19,7 +19,7 @@ void test_play_rects_inside_and_disjoint() {
   for (int i = 1; i <= kPlayTargets; ++i) {
     Rect a = playRect((PlayHit)i);
     TEST_ASSERT_TRUE_MESSAGE(inside(a), "rect outside screen");
-    TEST_ASSERT_TRUE(a.w >= 35 && a.h >= 35);
+    TEST_ASSERT_TRUE(a.w >= 40 && a.h >= 40);
     for (int j = i + 1; j <= kPlayTargets; ++j) TEST_ASSERT_FALSE(overlap(a, playRect((PlayHit)j)));
   }
 }
@@ -31,18 +31,21 @@ void test_play_controls_at_least_40px() {
   }
 }
 
-void test_play_targets_cover_everything_below_status() {
-  for (int y = kStatusH; y < kScreenH; ++y)
+void test_play_targets_cover_whole_screen() {
+  for (int y = 0; y < kScreenH; ++y)
     for (int x = 0; x < kScreenW; ++x) TEST_ASSERT_TRUE(playHitTest(x, y) != PlayHit::None);
-  TEST_ASSERT_TRUE(playHitTest(100, 5) == PlayHit::None);  // status bar
+  TEST_ASSERT_TRUE(playHitTest(100, -1) == PlayHit::None);
+  TEST_ASSERT_TRUE(playHitTest(100, 240) == PlayHit::None);
   TEST_ASSERT_TRUE(playHitTest(-1, 100) == PlayHit::None);
   TEST_ASSERT_TRUE(playHitTest(240, 100) == PlayHit::None);
 }
 
 void test_play_hit_points() {
-  TEST_ASSERT_TRUE(playHitTest(120, 20) == PlayHit::Slot1);
-  TEST_ASSERT_TRUE(playHitTest(5, 54) == PlayHit::Slot1);
-  TEST_ASSERT_TRUE(playHitTest(5, 55) == PlayHit::Slot2);
+  TEST_ASSERT_TRUE(playHitTest(120, 0) == PlayHit::Slot1);
+  TEST_ASSERT_TRUE(playHitTest(5, 39) == PlayHit::Slot1);
+  TEST_ASSERT_TRUE(playHitTest(5, 40) == PlayHit::Slot2);
+  TEST_ASSERT_TRUE(playHitTest(5, 119) == PlayHit::Slot3);
+  TEST_ASSERT_TRUE(playHitTest(5, 120) == PlayHit::Slot4);
   TEST_ASSERT_TRUE(playHitTest(239, 159) == PlayHit::Slot4);
   TEST_ASSERT_TRUE(playHitTest(0, 160) == PlayHit::Prev);
   TEST_ASSERT_TRUE(playHitTest(72, 180) == PlayHit::PlayPause);
@@ -54,6 +57,13 @@ void test_play_hit_points() {
   TEST_ASSERT_TRUE(playHitTest(239, 239) == PlayHit::Program);
   TEST_ASSERT_EQUAL_INT(3, slotOf(PlayHit::Slot3));
   TEST_ASSERT_EQUAL_INT(0, slotOf(PlayHit::Next));
+}
+
+void test_hash_mix() {
+  uint32_t a = hashMix(hashMix(kHashSeed, 1), 2), b = hashMix(hashMix(kHashSeed, 2), 1);
+  TEST_ASSERT_TRUE(a != b);
+  TEST_ASSERT_EQUAL_UINT32(a, hashMix(hashMix(kHashSeed, 1), 2));
+  TEST_ASSERT_TRUE(hashMix(kHashSeed, 0) != hashMix(kHashSeed, 256));
 }
 
 void test_bt_layout_and_hits() {
@@ -262,7 +272,8 @@ int runAll() {
   UNITY_BEGIN();
   RUN_TEST(test_play_rects_inside_and_disjoint);
   RUN_TEST(test_play_controls_at_least_40px);
-  RUN_TEST(test_play_targets_cover_everything_below_status);
+  RUN_TEST(test_play_targets_cover_whole_screen);
+  RUN_TEST(test_hash_mix);
   RUN_TEST(test_play_hit_points);
   RUN_TEST(test_bt_layout_and_hits);
   RUN_TEST(test_program_button);

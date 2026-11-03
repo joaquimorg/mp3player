@@ -16,6 +16,7 @@ void startScan();                   // keeps scanning until stopScan()/connectTo
 void stopScan();
 bool scanning();
 std::vector<String> devices();      // audio-capable names seen since begin()
+uint32_t devicesVersion();          // changes whenever devices() would return something new
 void connectTo(const String& name); // saved as settings::lastBtDevice() once CONNECTED
 bool connected();
 String connectedName();             // live peer's name if connected, else the target name

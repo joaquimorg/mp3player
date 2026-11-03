@@ -19,14 +19,14 @@ struct Rect {
 };
 
 // ---- Reprodução screen ------------------------------------------------------
-// y   0.. 19  status "BT: ..." + volume (not a touch target)
-// y  20..159  4 slot rows, 35 px each, full width
+// Every touch target is at least 40 px in both directions; no status bar (the
+// Bluetooth button shows the BT state, the − button the volume).
+// y   0..159  4 slot rows, 40 px each, full width
 // y 160..199  ⏮ ⏯ ⏭ − +  (48 x 40 each)
-// y 200..239  loop toggle | Bluetooth | Programar (80 x 40 each)
-constexpr int kStatusH = 20;
-constexpr int kSlotRowH = 35;
+// y 200..239  loop toggle | Bluetooth (BT state) | Programar (80 x 40 each)
+constexpr int kSlotRowH = 40;
 constexpr int kCtrlRowH = 40;
-constexpr int kTransportY = kStatusH + 4 * kSlotRowH;  // 160
+constexpr int kTransportY = 4 * kSlotRowH;             // 160
 constexpr int kBottomY = kTransportY + kCtrlRowH;      // 200
 
 enum class PlayHit { None, Slot1, Slot2, Slot3, Slot4, Prev, PlayPause, Next, VolDown, VolUp, Loop, Bluetooth, Program };
@@ -95,6 +95,13 @@ Action playPauseAction(bool playing, bool paused, int current, const bool has[4]
 Action slotTapAction(int slot, bool playing, bool paused, int current, const bool has[4]);
 
 std::string btStatusText(bool connected, const std::string& name);  // "BT: <name>" / "BT: Desligado"
+
+// FNV-1a style mixing, for cheap "did anything shown change?" signatures.
+inline uint32_t hashMix(uint32_t h, uint32_t v) {
+  for (int i = 0; i < 4; ++i) h = (h ^ ((v >> (8 * i)) & 0xFF)) * 16777619u;
+  return h;
+}
+constexpr uint32_t kHashSeed = 2166136261u;
 // Drops empty names and duplicates (first occurrence kept, order preserved).
 std::vector<std::string> btListNames(const std::vector<std::string>& raw);
 

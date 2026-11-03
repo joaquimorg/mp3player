@@ -9,7 +9,7 @@ Rect playRect(PlayHit h) {
   int i = (int)h;
   if (h >= PlayHit::Slot1 && h <= PlayHit::Slot4) {
     int k = i - (int)PlayHit::Slot1;
-    return Rect{0, (int16_t)(kStatusH + k * kSlotRowH), kScreenW, kSlotRowH};
+    return Rect{0, (int16_t)(k * kSlotRowH), kScreenW, kSlotRowH};
   }
   if (h >= PlayHit::Prev && h <= PlayHit::VolUp) {
     int k = i - (int)PlayHit::Prev;

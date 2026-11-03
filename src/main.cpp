@@ -32,7 +32,17 @@
 // on entering Reprodução. The watch boots into Programação only if the flag is
 // set AND the reset was a software reset (ESP.restart() after POST /wifi in the
 // setup access point); a power-cycle always boots into Reprodução.
+//
+// Hang protection: a switch that has not finished 25 s after the system task
+// started it (worst cases measured in tasks 4/5: bt::end() ~8.5 s + player::end()
+// ~5.5 s), or that has not even started 180 s after it was requested (it waits
+// for an upload in progress to end), is logged and the watch restarts with the
+// Programação flag cleared, i.e. into Reprodução, instead of showing
+// "A mudar de modo…" forever.
 namespace {
+
+constexpr uint32_t kSwitchDeadlineMs = 25000;
+constexpr uint32_t kStartDeadlineMs = 180000;
 
 TTGOClass* watch = nullptr;
 
@@ -41,6 +51,9 @@ std::atomic<ui::Mode> s_mode{ui::Mode::Play};
 std::atomic<bool> s_busy{true};
 SemaphoreHandle_t s_ipLock = nullptr;
 String s_ip;  // snapshot of netmode::ipText(), written by the system task
+std::atomic<uint32_t> s_ipVersion{0};
+std::atomic<uint32_t> s_requestAt{0};  // millis() of the pending request (0: none)
+std::atomic<uint32_t> s_startAt{0};    // millis() the system task began it (0: not yet)
 uint32_t s_switches = 0;
 
 void heapLine(const char* tag) {
@@ -53,9 +66,14 @@ void heapLine(const char* tag) {
 
 void publishIp(const String& ip) {
   xSemaphoreTake(s_ipLock, portMAX_DELAY);
-  s_ip = ip;
+  if (ip != s_ip) {
+    s_ip = ip;
+    s_ipVersion.fetch_add(1);
+  }
   xSemaphoreGive(s_ipLock);
 }
+
+uint32_t nonZero(uint32_t t) { return t ? t : 1; }
 
 // Programação -> Reprodução: Wi-Fi fully off before Bluetooth starts.
 void enterPlay() {
@@ -69,8 +87,21 @@ void enterPlay() {
   player::begin();
 }
 
+}  // namespace
+#ifdef UI_DEBUG
+volatile bool g_debugStallSwitch = false;  // "stall" console command: next switch hangs 40 s
+#endif
+namespace {
+
 // Reprodução -> Programação: Bluetooth and player fully off before Wi-Fi starts.
 void enterProgram() {
+#ifdef UI_DEBUG
+  if (g_debugStallSwitch) {
+    g_debugStallSwitch = false;
+    Serial.println("[mode] debug: stalling this switch for 40 s");
+    vTaskDelay(pdMS_TO_TICKS(40000));
+  }
+#endif
   player::pause();
   player::stop();
   bt::end();
@@ -86,6 +117,7 @@ void systemTask(void*) {
     ui::Mode want;
     if (xQueueReceive(s_cmds, &want, program ? pdMS_TO_TICKS(2) : portMAX_DELAY) == pdTRUE) {
       uint32_t t0 = millis();
+      s_startAt = nonZero(t0);
       const char* name = want == ui::Mode::Play ? "Reproducao" : "Programacao";
       Serial.printf("[mode] switch #%u -> %s\n", (unsigned)++s_switches, name);
       heapLine("before switch");
@@ -94,6 +126,8 @@ void systemTask(void*) {
       s_mode = want;
       Serial.printf("[mode] now %s (switch took %u ms)\n", name, (unsigned)(millis() - t0));
       heapLine("after switch");
+      s_requestAt = 0;
+      s_startAt = 0;
       s_busy = false;
       continue;
     }
@@ -112,6 +146,8 @@ void systemTask(void*) {
 ui::Mode hostMode() { return s_mode.load(); }
 bool hostBusy() { return s_busy.load(); }
 void hostRequest(ui::Mode m) {
+  s_startAt = 0;
+  s_requestAt = nonZero(millis());
   s_busy = true;
   xQueueSend(s_cmds, &m, portMAX_DELAY);
 }
@@ -123,6 +159,7 @@ String hostIp() {
 }
 // netmode::uploading() is atomic and meant to be read while the system task is
 // blocked inside netmode::loop() receiving the file.
+uint32_t hostIpVersion() { return s_ipVersion.load(); }
 bool hostUploading() { return s_mode.load() == ui::Mode::Program && !s_busy.load() && netmode::uploading(); }
 
 }  // namespace
@@ -148,6 +185,7 @@ void setup() {
   s_cmds = xQueueCreate(4, sizeof(ui::Mode));
   s_ipLock = xSemaphoreCreateMutex();
   s_busy = true;
+  s_requestAt = nonZero(millis());
   ui::Mode first = program ? ui::Mode::Program : ui::Mode::Play;
   xQueueSend(s_cmds, &first, 0);
   // Priority 1 on core 1, like the Arduino loop task (UI): the two time-slice, so
@@ -155,12 +193,26 @@ void setup() {
   // the task just sleeps on its queue and core 1 is left to the MP3 decoder.
   xTaskCreatePinnedToCore(systemTask, "system", 10240, nullptr, 1, nullptr, 1);
 
-  ui::Host host{hostMode, hostBusy, hostRequest, hostIp, hostUploading};
+  ui::Host host{hostMode, hostBusy, hostRequest, hostIp, hostIpVersion, hostUploading};
   ui::begin(watch, host);
+}
+
+// Runs in the UI task: the system task may be the one that is stuck.
+void checkSwitchDeadline() {
+  if (!s_busy.load()) return;
+  uint32_t now = millis(), start = s_startAt.load(), req = s_requestAt.load();
+  bool late = start ? now - start > kSwitchDeadlineMs : (req && now - req > kStartDeadlineMs);
+  if (!late) return;
+  Serial.printf("[mode] ERROR: mode switch %s for %u s; restarting into Reproducao\n",
+                start ? "not finished" : "not started", (unsigned)((now - (start ? start : req)) / 1000));
+  settings::setProgramFlag(false);
+  delay(200);
+  ESP.restart();
 }
 
 void loop() {
   ui::loop();
+  checkSwitchDeadline();
   delay(10);
 }
 

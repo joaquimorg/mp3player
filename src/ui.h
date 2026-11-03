@@ -20,6 +20,7 @@ struct Host {
   bool (*busy)();
   void (*requestMode)(Mode m);  // sets busy() before returning
   String (*ipText)();           // snapshot of netmode::ipText() (Programação)
+  uint32_t (*ipVersion)();      // changes whenever ipText() changes (cheap to poll)
   bool (*uploading)();          // snapshot of netmode::uploading()
 };
 
