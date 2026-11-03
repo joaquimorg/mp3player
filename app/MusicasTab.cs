@@ -106,20 +106,22 @@ public partial class MainForm
         input.Controls.Add(musPick, 1, 0);
         AddRow(at, input, 12);
 
-        FlowLayoutPanel dest = new FlowLayoutPanel();
-        dest.AutoSize = true;
-        dest.WrapContents = false;
+        // Fixed-height row (a flow panel clipped the bottom of the combo box).
+        Panel dest = new Panel();
+        dest.Height = 40;
+        dest.Dock = DockStyle.Fill;
         dest.BackColor = Theme.Card;
         Label lbl = Theme.Label("Guardar em:", Theme.Normal, Theme.Text);
-        lbl.Margin = new Padding(0, 6, 8, 0);
+        lbl.Location = new Point(0, 8);
         dest.Controls.Add(lbl);
         musSlot = new ComboBox();
         musSlot.DropDownStyle = ComboBoxStyle.DropDownList;
-        musSlot.Width = 360;
         musSlot.Font = Theme.Normal;
+        musSlot.Location = new Point(lbl.PreferredWidth + 12, 3);
+        musSlot.Width = 380;
         musSlot.SelectedIndexChanged += delegate { SyncSlotSelection(); };
         dest.Controls.Add(musSlot);
-        AddRow(at, dest, 14);
+        AddRow(at, dest, 10);
 
         musSend = Theme.PrimaryButton("Adicionar ao relógio");
         musSend.Dock = DockStyle.Fill;
