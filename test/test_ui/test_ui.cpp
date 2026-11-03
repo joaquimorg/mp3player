@@ -475,6 +475,7 @@ void test_transfer_helpers() {
   TEST_ASSERT_EQUAL_INT(-1, uilogic::etaSeconds(0, 100, 1000));
   TEST_ASSERT_EQUAL_INT(10, uilogic::etaSeconds(50, 100, 10000));
   TEST_ASSERT_EQUAL_INT(0, uilogic::etaSeconds(100, 100, 10000));
+  TEST_ASSERT_EQUAL_INT(-1, uilogic::etaSeconds(1, 4000000000u, 4000000000u));  // > 1 day: unknown
 }
 
 int runAll() {

@@ -738,11 +738,12 @@ void drawOverlay(Overlay ov, const transfer::Info& t, uint32_t now) {
       g->drawLine(104, 92 + d, 114, 102 + d, C_TEXT);
       g->drawLine(114, 102 + d, 134, 80 + d, C_TEXT);
     }
-    snprintf(b, sizeof b, "Recebido: %s (%s)", t.name, uilogic::formatMB(t.received).c_str());
+    snprintf(b, sizeof b, "Recebido: %s", t.name);
     useFont(Font::S);
     std::vector<std::string> lines =
-        uilogic::wrap(uilogic::sanitize(b, hasGlyph, nullptr), 214, 3, widthOf, nullptr);
-    int y = 124 - (int)(lines.size() - 1) * 11;
+        uilogic::wrap(uilogic::sanitize(b, hasGlyph, nullptr), 214, 2, widthOf, nullptr);
+    lines.push_back(uilogic::formatMB(t.received));  // short ("4,0 MB"): always one line
+    int y = 120 - (int)(lines.size() - 1) * 11;
     for (auto& l : lines) {
       queueText(Font::S, l.c_str(), 120, y, MC_DATUM, C_TEXT, 0x0B04, 0, "banner");
       y += 22;

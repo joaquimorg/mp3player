@@ -184,7 +184,7 @@ void handleUpload() {
       std::string shown = netlogic::sanitizeFileName(up.filename.c_str());
       if (shown.empty()) shown = "Faixa " + std::to_string(s_up.slot);
       transfer::begin(transfer::Source::Wifi, s_up.slot, shown.c_str(),
-                      s_up.contentLength > 0 ? (uint32_t)s_up.contentLength : 0);
+                      (uint32_t)netlogic::estimateFileSize(s_up.contentLength));
     }
     Serial.printf("[net] upload start slot %d name '%s' content-length %ld heap %u\n", s_up.slot,
                   up.filename.c_str(), s_up.contentLength, (unsigned)ESP.getFreeHeap());
@@ -267,11 +267,11 @@ void handleUpload() {
     }
     s_up.writer.reset();
     s_up.committed = true;
-    transfer::done();
     std::string name = netlogic::sanitizeFileName(up.filename.c_str());
     storage::setSlotName(s_up.slot, String(name.c_str()));  // "" -> default "Faixa N"
     Serial.printf("[net] upload slot %d committed %u bytes, name '%s', heap %u\n", s_up.slot,
                   (unsigned)s_up.written, name.c_str(), (unsigned)ESP.getFreeHeap());
+    transfer::done();  // after commit + name: the file is complete
   } else if (up.status == UPLOAD_FILE_ABORTED) {
     Serial.printf("[net] upload slot %d ABORTED by client after %u bytes; old slot kept\n", s_up.slot,
                   (unsigned)s_up.written);

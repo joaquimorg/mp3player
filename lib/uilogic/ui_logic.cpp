@@ -346,7 +346,8 @@ int etaSeconds(uint32_t received, uint32_t total, uint32_t elapsedMs) {
   if (received == 0 || total == 0 || elapsedMs == 0) return -1;
   if (received >= total) return 0;
   uint64_t ms = (uint64_t)(total - received) * elapsedMs / received;
-  return (int)((ms + 500) / 1000);
+  uint64_t s = (ms + 500) / 1000;
+  return s > 86400 ? -1 : (int)s;
 }
 
 }  // namespace uilogic

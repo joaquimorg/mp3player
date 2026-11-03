@@ -76,7 +76,7 @@ Em Reprodução há três ecrãs: **Leitor** (o principal), **Músicas** e **Men
 
 **Programação**
 - Mostra o endereço IP do relógio (por exemplo `192.168.1.50`) ou, enquanto liga, "A ligar ao Wi-Fi...". Se a ligação à rede cair, mostra "Sem ligação Wi-Fi".
-- Durante um envio, **em qualquer ecrã**, aparece o ecrã **A receber música**: `Slot N · nome`, uma barra de progresso, `2,1 de 4,3 MB · 49%` e "falta cerca de X s". O ecrã não se apaga, os toques são ignorados (incluindo **Reprodução**) e convém não desligar o relógio. No fim mostra "Recebido: nome (4,3 MB)" durante 4 s; se o envio falhar, mostra o motivo a vermelho durante 6 s. Depois volta ao ecrã anterior.
+- Durante um envio, **em qualquer ecrã**, aparece o ecrã **A receber música**: `Slot N · nome`, uma barra de progresso, `2,1 de 4,3 MB · 49%` e "falta cerca de X s". O ecrã não se apaga, os toques são ignorados (incluindo **Reprodução**) e convém não desligar o relógio. No fim mostra "Recebido: nome" e o tamanho (por exemplo `4,3 MB`) durante 4 s; se o envio falhar, mostra o motivo a vermelho durante 6 s. Depois volta ao ecrã anterior.
 - **Reprodução** volta ao modo de música; o relógio volta sempre ao Leitor.
 
 ### Botão lateral e ecrã
