@@ -31,11 +31,12 @@ constexpr int kMinTarget = 50;
 enum class View { Player, Songs, Menu, Bluetooth };
 
 // ---- Player -------------------------------------------------------------------
-// y   0.. 27  title "▶ N · nome" / "Parado" / "Nenhuma música" (not a target)
-// y  28..103  ⏮ (64x70, centred) | ⏯ (80x76) | ⏭ (64x70)
-// y 112..167  − (64x56) | "Vol NN" label | + (64x56)
-// y 176..231  Músicas (108x56) | Menu (108x56)
-constexpr int kTitleH = 28;
+// y   0.. 39  two text lines (not targets): the Bluetooth state ("nome" / "A ligar..." /
+//              "Sem auscultadores"), then the title "▶ N · nome" / "Parado" / "Nenhuma música"
+// y  40..115  ⏮ (64x70, centred) | ⏯ (80x76) | ⏭ (64x70)
+// y 124..173  − (64x50) | "Vol NN" label | + (64x50)
+// y 182..231  Músicas (108x50) | Menu (108x50)
+constexpr int kTitleH = 40;
 enum class PlayerHit { None, Prev, PlayPause, Next, VolDown, VolUp, Songs, Menu };
 constexpr int kPlayerTargets = 7;  // Prev..Menu
 Rect playerRect(PlayerHit h);      // {0,0,0,0} for None
@@ -43,7 +44,8 @@ Rect playerVolumeLabel();          // between − and + (not a target)
 PlayerHit playerHitTest(int x, int y);
 
 // ---- Músicas --------------------------------------------------------------------
-// 4 slot rows 164x50 at x 8, y 8/66/124/182 | "Voltar" column 52x224 at x 180.
+// 2 x 2 tiles of 108x79 (slots 1,2 on the first row, 3,4 on the second; x 8/124, y 8/95) and a
+// full-width "Voltar" bar 224x50 at y 182.
 enum class SongsHit { None, Slot1, Slot2, Slot3, Slot4, Back };
 constexpr int kSongsTargets = 5;
 Rect songsRect(SongsHit h);
@@ -136,6 +138,14 @@ Action playPauseAction(bool playing, bool paused, int current, const bool has[4]
 Action slotTapAction(int slot, bool playing, bool paused, int current, const bool has[4]);
 
 std::string btStatusText(bool connected, const std::string& name);  // "BT: <name>" / "BT: Desligado"
+
+// Bluetooth state line at the top of the Player. `pending`: a device was tapped and the link is not up
+// yet; `hasSaved` + `sinceEnterMs`: a saved device is being reconnected automatically after entering
+// Reprodução (shown as connecting for kBtAutoConnectMs, then as off).
+enum class BtState { Connected, Connecting, Off };
+constexpr uint32_t kBtAutoConnectMs = 25000;
+BtState btState(bool connected, bool pending, bool hasSaved, uint32_t sinceEnterMs);
+std::string btStatusLine(BtState s, const std::string& name);
 
 // FNV-1a style mixing, for cheap "did anything shown change?" signatures.
 inline uint32_t hashMix(uint32_t h, uint32_t v) {

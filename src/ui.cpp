@@ -108,6 +108,8 @@ uint32_t s_volAt = 0;
 bool s_btConn = false;
 uint32_t s_btConnects = 0xFFFFFFFF;
 String s_btName;
+bool s_hasSavedBt = false;     // a saved device exists (auto-reconnect after entering Reprodução)
+uint32_t s_playEnteredAt = 0;  // millis() when Reprodução was entered
 
 // Bluetooth screen
 int s_btPage = 0;
@@ -264,8 +266,15 @@ void refreshBtName() {
   s_btName = c ? bt::connectedName() : String();
 }
 
+// Bluetooth state shown at the top of the Player.
+uilogic::BtState btStateNow(uint32_t now) {
+  bool pend = s_pending.length() && now - s_pendingAt < 30000;
+  return uilogic::btState(s_btConn, pend, s_hasSavedBt, now - s_playEnteredAt);
+}
+
 uint32_t playerStateHash(uint32_t h) {
   h = uilogic::hashMix(h, (uint32_t)player::currentSlot());
+  h = uilogic::hashMix(h, (uint32_t)btStateNow(millis()));
   h = uilogic::hashMix(h, (player::playing() ? 1u : 0u) | (player::paused() ? 2u : 0u) | (s_btConn ? 4u : 0u));
   h = uilogic::hashMix(h, player::volume() | ((uint32_t)s_loop << 8));
   return uilogic::hashMix(h, s_btConnects);
@@ -338,10 +347,18 @@ void drawPlayer() {
   // title: ▶/❚❚ icon + "N · nome" / "Parado" / "Nenhuma música"
   std::string curName = (cur >= 1 && cur <= 4) ? std::string(s_names[cur - 1].c_str()) : std::string();
   uilogic::Title t = uilogic::playerTitle(cur, playing, paused, s_has, curName);
+  // line 1 (y 0..19): Bluetooth state: green dot = connected, amber = connecting, hollow grey = off
+  uilogic::BtState bs = btStateNow(millis());
+  uint16_t bc = bs == uilogic::BtState::Connected ? C_GREEN : bs == uilogic::BtState::Connecting ? C_YELLOW : C_DIM;
+  if (bs == uilogic::BtState::Off) g->drawCircle(14, 9, 5, bc);
+  else g->fillCircle(14, 9, 5, bc);
+  queueText(Font::S, String(uilogic::btStatusLine(bs, std::string(s_btName.c_str())).c_str()), 26, 9, ML_DATUM, bc, C_BG,
+            206, "bluetooth");
+  // line 2 (y 20..39): what is playing
   int tx = 8;
-  if (t.icon == uilogic::Title::Icon::Play) iconPlay(15, 14, 7, C_GREEN), tx = 28;
-  if (t.icon == uilogic::Title::Icon::Pause) iconPause(15, 14, 7, C_YELLOW), tx = 28;
-  queueText(Font::M, t.text.c_str(), tx, 14, ML_DATUM, t.icon == uilogic::Title::Icon::None ? C_DIM : C_TEXT, C_BG,
+  if (t.icon == uilogic::Title::Icon::Play) iconPlay(15, 29, 7, C_GREEN), tx = 28;
+  if (t.icon == uilogic::Title::Icon::Pause) iconPause(15, 29, 7, C_YELLOW), tx = 28;
+  queueText(Font::M, t.text.c_str(), tx, 29, ML_DATUM, t.icon == uilogic::Title::Icon::None ? C_DIM : C_TEXT, C_BG,
             232 - tx, "title");
   DESC("title icon %s", t.icon == uilogic::Title::Icon::Play    ? "play"
                         : t.icon == uilogic::Title::Icon::Pause ? "pause"
@@ -380,8 +397,8 @@ void drawSongsWidget(uilogic::SongsHit id, bool pressed) {
   if (id == SongsHit::Back) {
     uint16_t c = pressed ? C_PRESS : C_BTN_HI;
     button(r, c);
-    g->fillTriangle(cx(r) + 7, cy(r) - 30, cx(r) + 7, cy(r) - 14, cx(r) - 7, cy(r) - 22, C_TEXT);
-    queueText(Font::S, "Voltar", cx(r), cy(r) + 8, MC_DATUM, C_TEXT, c, r.w - 4, "button");
+    g->fillTriangle(cx(r) - 44, cy(r), cx(r) - 30, cy(r) - 9, cx(r) - 30, cy(r) + 9, C_TEXT);
+    queueText(Font::M, "Voltar", cx(r) + 8, cy(r), MC_DATUM, C_TEXT, c, r.w - 70, "button");
     return;
   }
   int slot = uilogic::slotOf(id);
@@ -389,17 +406,27 @@ void drawSongsWidget(uilogic::SongsHit id, bool pressed) {
   int cur = player::currentSlot();
   bool playing = player::playing(), paused = player::paused();
   bool isCur = cur == slot && (playing || paused);
-  uint16_t bg = pressed ? C_PRESS : isCur ? C_ROW_CUR : (slot % 2 ? C_ROW_A : C_ROW_B);
+  uint16_t bg = pressed ? C_PRESS : isCur ? C_ROW_CUR : (s_has[slot - 1] ? C_ROW_B : C_ROW_A);
   button(r, bg);
-  if (isCur) iconPlay(r.x + 12, cy(r), 7, playing ? C_GREEN : C_YELLOW);
-  queueText(Font::S, String(slot), r.x + 26, cy(r), ML_DATUM, C_DIM, bg);
+  // top line: slot number (left) and the play/pause marker of the current song (right)
+  queueText(Font::M, String(slot), r.x + 10, r.y + 14, ML_DATUM, isCur ? C_TEXT : C_DIM, bg);
+  if (isCur) {
+    if (playing) iconPlay(r.x + r.w - 16, r.y + 14, 7, C_GREEN);
+    else iconPause(r.x + r.w - 16, r.y + 14, 7, C_YELLOW);
+  }
   static char tags[4][32];
-  snprintf(tags[slot - 1], sizeof tags[slot - 1], "slot %d%s", slot,
-           !isCur ? "" : playing ? " > (a tocar)" : " > (pausa)");
-  if (s_has[slot - 1])
-    queueText(Font::M, s_names[slot - 1], r.x + 40, cy(r), ML_DATUM, C_TEXT, bg, r.w - 40 - 6, tags[slot - 1]);
-  else
-    queueText(Font::M, "Vazio", r.x + 40, cy(r), ML_DATUM, C_DIM, bg, 0, tags[slot - 1]);
+  snprintf(tags[slot - 1], sizeof tags[slot - 1], "slot %d%s", slot, !isCur ? "" : playing ? " > (a tocar)" : " > (pausa)");
+  if (!s_has[slot - 1]) {
+    queueText(Font::S, "Vazio", cx(r), r.y + 50, MC_DATUM, C_DIM, bg, 0, tags[slot - 1]);
+    return;
+  }
+  // the name wraps over up to 3 lines instead of being cut off
+  useFont(Font::S);
+  std::vector<std::string> lines = uilogic::wrap(uilogic::sanitize(s_names[slot - 1].c_str(), hasGlyph, nullptr),
+                                                  r.w - 12, 3, widthOf, nullptr);
+  int y = r.y + 36;
+  for (size_t i = 0; i < lines.size(); ++i, y += 15)
+    queueText(Font::S, String(lines[i].c_str()), r.x + 8, y, ML_DATUM, C_TEXT, bg, 0, i == 0 ? tags[slot - 1] : nullptr);
 }
 
 void drawSongs() {
@@ -809,7 +836,11 @@ void setScreen(Screen s) {
   bool wasPlayMode = s_screen == Screen::Player || s_screen == Screen::Songs || s_screen == Screen::Menu ||
                      s_screen == Screen::Bluetooth;
   bool isPlayMode = s == Screen::Player || s == Screen::Songs || s == Screen::Menu || s == Screen::Bluetooth;
-  if (isPlayMode && !wasPlayMode) loadSlots();  // fresh from Programação/boot
+  if (isPlayMode && !wasPlayMode) {  // fresh from Programação/boot
+    loadSlots();
+    s_playEnteredAt = millis();
+    s_hasSavedBt = settings::lastBtDevice().length() > 0;
+  }
   if (s == Screen::Bluetooth) s_devVer = 0xFFFFFFFF;  // rebuild the list
   s_pressId = 0;  // a held button belongs to the old screen
   s_screen = s;

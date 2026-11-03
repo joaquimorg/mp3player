@@ -12,17 +12,17 @@ Rect r(int x, int y, int w, int h) { return Rect{(int16_t)x, (int16_t)y, (int16_
 
 Rect playerRect(PlayerHit h) {
   switch (h) {
-    case PlayerHit::Prev: return r(8, 31, 64, 70);
-    case PlayerHit::PlayPause: return r(80, 28, 80, 76);
-    case PlayerHit::Next: return r(168, 31, 64, 70);
-    case PlayerHit::VolDown: return r(8, 112, 64, 56);
-    case PlayerHit::VolUp: return r(168, 112, 64, 56);
-    case PlayerHit::Songs: return r(8, 176, 108, 56);
-    case PlayerHit::Menu: return r(124, 176, 108, 56);
+    case PlayerHit::Prev: return r(8, 43, 64, 70);
+    case PlayerHit::PlayPause: return r(80, 40, 80, 76);
+    case PlayerHit::Next: return r(168, 43, 64, 70);
+    case PlayerHit::VolDown: return r(8, 124, 64, 50);
+    case PlayerHit::VolUp: return r(168, 124, 64, 50);
+    case PlayerHit::Songs: return r(8, 182, 108, 50);
+    case PlayerHit::Menu: return r(124, 182, 108, 50);
     default: return r(0, 0, 0, 0);
   }
 }
-Rect playerVolumeLabel() { return r(80, 112, 80, 56); }
+Rect playerVolumeLabel() { return r(80, 124, 80, 50); }
 
 PlayerHit playerHitTest(int x, int y) {
   for (int i = 1; i <= kPlayerTargets; ++i)
@@ -31,8 +31,11 @@ PlayerHit playerHitTest(int x, int y) {
 }
 
 Rect songsRect(SongsHit h) {
-  if (h >= SongsHit::Slot1 && h <= SongsHit::Slot4) return r(8, 8 + ((int)h - 1) * 58, 164, 50);
-  if (h == SongsHit::Back) return r(180, 8, 52, 224);
+  if (h >= SongsHit::Slot1 && h <= SongsHit::Slot4) {
+    int k = (int)h - 1;
+    return r(8 + (k % 2) * 116, 8 + (k / 2) * 87, 108, 79);
+  }
+  if (h == SongsHit::Back) return r(8, 182, 224, 50);
   return r(0, 0, 0, 0);
 }
 SongsHit songsHitTest(int x, int y) {
@@ -348,6 +351,25 @@ int etaSeconds(uint32_t received, uint32_t total, uint32_t elapsedMs) {
   uint64_t ms = (uint64_t)(total - received) * elapsedMs / received;
   uint64_t s = (ms + 500) / 1000;
   return s > 86400 ? -1 : (int)s;
+}
+
+}  // namespace uilogic
+
+namespace uilogic {
+
+BtState btState(bool connected, bool pending, bool hasSaved, uint32_t sinceEnterMs) {
+  if (connected) return BtState::Connected;
+  if (pending) return BtState::Connecting;
+  if (hasSaved && sinceEnterMs < kBtAutoConnectMs) return BtState::Connecting;
+  return BtState::Off;
+}
+
+std::string btStatusLine(BtState s, const std::string& name) {
+  switch (s) {
+    case BtState::Connected: return name.empty() ? std::string("Auscultadores ligados") : name;
+    case BtState::Connecting: return "A ligar...";
+    default: return "Sem auscultadores";
+  }
 }
 
 }  // namespace uilogic

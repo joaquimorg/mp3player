@@ -53,7 +53,8 @@ void test_layout_player() {
   Rect vl = playerVolumeLabel();
   TEST_ASSERT_TRUE(vl.x >= playerRect(PlayerHit::VolDown).x + playerRect(PlayerHit::VolDown).w);
   TEST_ASSERT_TRUE(vl.x + vl.w <= playerRect(PlayerHit::VolUp).x);
-  TEST_ASSERT_TRUE(playerRect(PlayerHit::VolDown).h >= 56 && playerRect(PlayerHit::Songs).h >= 56);
+  TEST_ASSERT_TRUE(playerRect(PlayerHit::VolDown).h >= 50 && playerRect(PlayerHit::Songs).h >= 50);
+  TEST_ASSERT_EQUAL_INT(40, kTitleH);  // two lines: Bluetooth state + now playing
   TEST_ASSERT_TRUE(playerRect(PlayerHit::Prev).y >= kTitleH && pp.y >= kTitleH);  // below the title
 }
 
@@ -74,38 +75,67 @@ void test_layout_songs_menu_bt_program() {
 }
 
 void test_player_hits() {
-  TEST_ASSERT_TRUE(playerHitTest(120, 10) == PlayerHit::None);   // title
-  TEST_ASSERT_TRUE(playerHitTest(8, 31) == PlayerHit::Prev);     // top-left corner
+  TEST_ASSERT_TRUE(playerHitTest(120, 10) == PlayerHit::None);   // title (Bluetooth line)
+  TEST_ASSERT_TRUE(playerHitTest(120, 39) == PlayerHit::None);   // last title row
+  TEST_ASSERT_TRUE(playerHitTest(8, 43) == PlayerHit::Prev);     // top-left corner
   TEST_ASSERT_TRUE(playerHitTest(7, 60) == PlayerHit::None);     // margin
-  TEST_ASSERT_TRUE(playerHitTest(71, 100) == PlayerHit::Prev);   // bottom-right corner
+  TEST_ASSERT_TRUE(playerHitTest(71, 112) == PlayerHit::Prev);   // bottom-right corner
   TEST_ASSERT_TRUE(playerHitTest(75, 60) == PlayerHit::None);    // gap
-  TEST_ASSERT_TRUE(playerHitTest(80, 28) == PlayerHit::PlayPause);
-  TEST_ASSERT_TRUE(playerHitTest(159, 103) == PlayerHit::PlayPause);
+  TEST_ASSERT_TRUE(playerHitTest(80, 40) == PlayerHit::PlayPause);
+  TEST_ASSERT_TRUE(playerHitTest(159, 115) == PlayerHit::PlayPause);
   TEST_ASSERT_TRUE(playerHitTest(160, 60) == PlayerHit::None);
-  TEST_ASSERT_TRUE(playerHitTest(200, 66) == PlayerHit::Next);
-  TEST_ASSERT_TRUE(playerHitTest(40, 140) == PlayerHit::VolDown);
-  TEST_ASSERT_TRUE(playerHitTest(120, 140) == PlayerHit::None);  // "Vol NN" label
-  TEST_ASSERT_TRUE(playerHitTest(200, 140) == PlayerHit::VolUp);
-  TEST_ASSERT_TRUE(playerHitTest(60, 204) == PlayerHit::Songs);
-  TEST_ASSERT_TRUE(playerHitTest(120, 204) == PlayerHit::None);  // gap 116..123
-  TEST_ASSERT_TRUE(playerHitTest(180, 204) == PlayerHit::Menu);
+  TEST_ASSERT_TRUE(playerHitTest(200, 78) == PlayerHit::Next);
+  TEST_ASSERT_TRUE(playerHitTest(40, 150) == PlayerHit::VolDown);
+  TEST_ASSERT_TRUE(playerHitTest(120, 150) == PlayerHit::None);  // "Vol NN" label
+  TEST_ASSERT_TRUE(playerHitTest(200, 150) == PlayerHit::VolUp);
+  TEST_ASSERT_TRUE(playerHitTest(60, 206) == PlayerHit::Songs);
+  TEST_ASSERT_TRUE(playerHitTest(120, 206) == PlayerHit::None);  // gap 116..123
+  TEST_ASSERT_TRUE(playerHitTest(180, 206) == PlayerHit::Menu);
   TEST_ASSERT_TRUE(playerHitTest(231, 231) == PlayerHit::Menu);
   TEST_ASSERT_TRUE(playerHitTest(232, 232) == PlayerHit::None);
   TEST_ASSERT_TRUE(playerHitTest(-1, -1) == PlayerHit::None);
 }
 
-void test_songs_menu_bt_hits() {
-  TEST_ASSERT_TRUE(songsHitTest(90, 8) == SongsHit::Slot1);
-  TEST_ASSERT_TRUE(songsHitTest(90, 57) == SongsHit::Slot1);
-  TEST_ASSERT_TRUE(songsHitTest(90, 60) == SongsHit::None);  // gap
-  TEST_ASSERT_TRUE(songsHitTest(90, 66) == SongsHit::Slot2);
-  TEST_ASSERT_TRUE(songsHitTest(90, 150) == SongsHit::Slot3);
-  TEST_ASSERT_TRUE(songsHitTest(171, 231) == SongsHit::Slot4);
-  TEST_ASSERT_TRUE(songsHitTest(176, 100) == SongsHit::None);  // gap to Voltar
-  TEST_ASSERT_TRUE(songsHitTest(200, 120) == SongsHit::Back);
+// Músicas: 2 x 2 tiles (108x79) and a full-width "Voltar" bar at the bottom.
+void test_songs_tiles() {
+  Rect s1 = songsRect(SongsHit::Slot1), s2 = songsRect(SongsHit::Slot2);
+  Rect s3 = songsRect(SongsHit::Slot3), s4 = songsRect(SongsHit::Slot4), b = songsRect(SongsHit::Back);
+  TEST_ASSERT_TRUE(s1.x == 8 && s1.y == 8 && s1.w == 108 && s1.h == 79);
+  TEST_ASSERT_TRUE(s2.x == 124 && s2.y == 8 && s3.x == 8 && s3.y == 95 && s4.x == 124 && s4.y == 95);
+  TEST_ASSERT_TRUE(b.x == 8 && b.y == 182 && b.w == 224 && b.h == 50);
+  TEST_ASSERT_TRUE(songsHitTest(8, 8) == SongsHit::Slot1);
+  TEST_ASSERT_TRUE(songsHitTest(115, 86) == SongsHit::Slot1);
+  TEST_ASSERT_TRUE(songsHitTest(116, 50) == SongsHit::None);   // gap between columns
+  TEST_ASSERT_TRUE(songsHitTest(124, 8) == SongsHit::Slot2);
+  TEST_ASSERT_TRUE(songsHitTest(231, 86) == SongsHit::Slot2);
+  TEST_ASSERT_TRUE(songsHitTest(60, 90) == SongsHit::None);    // gap between rows
+  TEST_ASSERT_TRUE(songsHitTest(8, 95) == SongsHit::Slot3);
+  TEST_ASSERT_TRUE(songsHitTest(115, 173) == SongsHit::Slot3);
+  TEST_ASSERT_TRUE(songsHitTest(124, 95) == SongsHit::Slot4);
+  TEST_ASSERT_TRUE(songsHitTest(231, 173) == SongsHit::Slot4);
+  TEST_ASSERT_TRUE(songsHitTest(100, 178) == SongsHit::None);  // gap above Voltar
+  TEST_ASSERT_TRUE(songsHitTest(8, 182) == SongsHit::Back);
+  TEST_ASSERT_TRUE(songsHitTest(231, 231) == SongsHit::Back);
   TEST_ASSERT_EQUAL_INT(3, slotOf(SongsHit::Slot3));
   TEST_ASSERT_EQUAL_INT(0, slotOf(SongsHit::Back));
+}
 
+// Bluetooth state shown at the top of the Player.
+void test_bt_state_line() {
+  TEST_ASSERT_TRUE(btState(true, false, true, 99999) == BtState::Connected);
+  TEST_ASSERT_TRUE(btState(true, true, false, 0) == BtState::Connected);        // link wins over a pending tap
+  TEST_ASSERT_TRUE(btState(false, true, false, 99999) == BtState::Connecting);  // device tapped, waiting
+  TEST_ASSERT_TRUE(btState(false, false, true, 5000) == BtState::Connecting);   // saved device, just entered Reprodução
+  TEST_ASSERT_TRUE(btState(false, false, true, 24999) == BtState::Connecting);
+  TEST_ASSERT_TRUE(btState(false, false, true, 25000) == BtState::Off);         // gave up waiting
+  TEST_ASSERT_TRUE(btState(false, false, false, 0) == BtState::Off);            // nothing saved
+  TEST_ASSERT_EQUAL_STRING("Redmi Buds 6 Active", btStatusLine(BtState::Connected, "Redmi Buds 6 Active").c_str());
+  TEST_ASSERT_EQUAL_STRING("Auscultadores ligados", btStatusLine(BtState::Connected, "").c_str());
+  TEST_ASSERT_EQUAL_STRING("A ligar...", btStatusLine(BtState::Connecting, "x").c_str());
+  TEST_ASSERT_EQUAL_STRING("Sem auscultadores", btStatusLine(BtState::Off, "x").c_str());
+}
+
+void test_songs_menu_bt_hits() {
   TEST_ASSERT_TRUE(menuHitTest(60, 60) == MenuHit::Bluetooth);
   TEST_ASSERT_TRUE(menuHitTest(180, 60) == MenuHit::Loop);
   TEST_ASSERT_TRUE(menuHitTest(60, 180) == MenuHit::Program);
@@ -483,6 +513,7 @@ int runAll() {
   RUN_TEST(test_layout_player);
   RUN_TEST(test_layout_songs_menu_bt_program);
   RUN_TEST(test_player_hits);
+  RUN_TEST(test_songs_tiles); RUN_TEST(test_bt_state_line);
   RUN_TEST(test_songs_menu_bt_hits);
   RUN_TEST(test_navigation);
   RUN_TEST(test_player_title);

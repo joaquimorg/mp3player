@@ -37,7 +37,8 @@ Em Reprodução há três ecrãs: **Leitor** (o principal), **Músicas** e **Men
 
 ```
 ┌──────────────────────────────┐
-│ ▶ 2 · Nome da faixa…         │  título (não é botão)
+│ ● Redmi Buds 6 Active        │  estado do Bluetooth (não é botão)
+│ ▶ 2 · Nome da faixa…         │  o que está a tocar
 │ ┌──────┐ ┌────────┐ ┌──────┐ │
 │ │  ⏮   │ │   ⏯    │ │  ⏭   │ │  anterior · tocar/pausa · seguinte
 │ └──────┘ └────────┘ └──────┘ │
@@ -50,15 +51,16 @@ Em Reprodução há três ecrãs: **Leitor** (o principal), **Músicas** e **Men
 └──────────────────────────────┘
 ```
 
-- O título mostra a faixa atual ("▶ 2 · nome" a tocar, "❚❚ 2 · nome" em pausa), "Parado" ou "Nenhuma música" se todos os slots estiverem vazios.
+- A **linha do Bluetooth** (no topo) mostra o estado: `●` verde e o nome do dispositivo quando os auscultadores estão ligados, `●` amarelo e "A ligar..." enquanto se liga (um dispositivo guardado volta a ligar-se sozinho durante uns segundos depois de entrares em Reprodução), e `○` cinzento e "Sem auscultadores" quando não há ligação.
+- A linha de baixo mostra a faixa atual ("▶ 2 · nome" a tocar, "❚❚ 2 · nome" em pausa), "Parado" ou "Nenhuma música" se todos os slots estiverem vazios.
 - **⏯** toca/pausa (o maior botão; mostra ❚❚ enquanto toca). Parado, toca a faixa atual ou a primeira que houver.
 - **⏮ / ⏭**: faixa anterior / seguinte.
 - **− / +**: volume; fica gravado.
 
 **Músicas**
-- Quatro linhas, uma por slot, com o nome da faixa ou "Vazio"; a faixa atual tem o ▶.
-- Tocar numa faixa **toca-a e volta ao Leitor**. Tocar na faixa atual faz pausa/retoma e fica neste ecrã. Uma linha "Vazio" não faz nada.
-- **Voltar** (coluna à direita) regressa ao Leitor.
+- Quatro **mosaicos 2×2**, um por slot, com o número, o nome da faixa (quebrado em até 3 linhas) ou "Vazio"; a faixa atual tem o ▶ (a tocar) ou ❚❚ (em pausa).
+- Tocar num mosaico **toca a faixa e volta ao Leitor**. Tocar na faixa atual faz pausa/retoma e fica neste ecrã. Um mosaico "Vazio" não faz nada.
+- **Voltar** (barra larga em baixo) regressa ao Leitor.
 
 **Menu** (quatro botões grandes)
 - **Bluetooth** (por baixo: `BT: nome` ou `desligado`): abre o ecrã Bluetooth.
