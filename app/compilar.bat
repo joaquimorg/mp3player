@@ -24,9 +24,7 @@ if errorlevel 1 (
 if /i "%~1"=="testes" exit /b 0
 
 echo [2/2] A compilar a app...
-set "SRC=AppLogic.cs Program.cs"
-for %%F in (MainForm.cs SerialLink.cs WatchApi.cs Converter.cs Tools.cs) do if exist %%F set "SRC=!SRC! %%F"
-"%CSC%" /nologo /warnaserror+ /target:winexe /out:TWatchMP3.exe /r:System.Windows.Forms.dll /r:System.Drawing.dll !SRC!
+"%CSC%" /nologo /warnaserror+ /target:winexe /out:TWatchMP3.exe /r:System.Windows.Forms.dll /r:System.Drawing.dll *.cs
 if errorlevel 1 exit /b 1
 echo OK: TWatchMP3.exe
 exit /b 0
