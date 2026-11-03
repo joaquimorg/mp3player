@@ -97,6 +97,47 @@ public static class Theme
     }
 }
 
+
+// A navigation button ("Músicas" / "Definições") whose colours follow its selected state, also after the
+// mouse enters and leaves (a plain button resets its back colour on MouseLeave and hid the white text).
+public class Pill : Button
+{
+    bool selected, hover;
+
+    public Pill(string text)
+    {
+        Text = text;
+        FlatStyle = FlatStyle.Flat;
+        Font = Theme.Semi;
+        Cursor = Cursors.Hand;
+        Width = 130;
+        Height = 40;
+        UseVisualStyleBackColor = false;
+        FlatAppearance.BorderColor = Theme.Line;
+        Apply();
+    }
+
+    public bool Selected
+    {
+        get { return selected; }
+        set { selected = value; Apply(); }
+    }
+
+    protected override void OnMouseEnter(EventArgs e) { hover = true; Apply(); base.OnMouseEnter(e); }
+    protected override void OnMouseLeave(EventArgs e) { hover = false; Apply(); base.OnMouseLeave(e); }
+
+    void Apply()
+    {
+        Color back = selected ? (hover ? Theme.AccentHover : Theme.Accent)
+                              : (hover ? ColorTranslator.FromHtml("#F3F4F6") : Color.White);
+        BackColor = back;
+        ForeColor = selected ? Color.White : Theme.Text;
+        FlatAppearance.BorderSize = selected ? 0 : 1;
+        FlatAppearance.MouseOverBackColor = back;
+        FlatAppearance.MouseDownBackColor = back;
+    }
+}
+
 // A white rounded card on the grey page background. Children keep a white back colour.
 public class Card : Panel
 {

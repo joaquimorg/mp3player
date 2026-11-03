@@ -16,7 +16,7 @@ public partial class MainForm : Form
 
     Panel header, navBar, content, pageMusic, pageSettings;
     Label hdrDot, hdrText;
-    Button navMusic, navSettings;
+    Pill navMusic, navSettings;
     TextBox logBox;   // technical details, shown under Definições > Avançado
 
     // Only one operation may use the USB serial port at a time (a second open would fail and the
@@ -138,29 +138,17 @@ public partial class MainForm : Form
         col.Controls.Add(card, 0, col.RowCount - 1);
     }
 
-    Button NavPill(string text)
+    Pill NavPill(string text)
     {
-        Button b = Theme.SecondaryButton(text);
-        b.Width = 130;
-        b.Height = 40;
-        b.Font = Theme.Semi;
-        return b;
+        return new Pill(text);
     }
 
     void ShowPage(bool music)
     {
         pageMusic.Visible = music;
         pageSettings.Visible = !music;
-        Style(navMusic, music);
-        Style(navSettings, !music);
-    }
-
-    static void Style(Button b, bool selected)
-    {
-        b.BackColor = selected ? Theme.Accent : Color.White;
-        b.ForeColor = selected ? Color.White : Theme.Text;
-        b.FlatAppearance.BorderSize = selected ? 0 : 1;
-        b.FlatAppearance.MouseOverBackColor = selected ? Theme.AccentHover : ColorTranslator.FromHtml("#F3F4F6");
+        navMusic.Selected = music;
+        navSettings.Selected = !music;
     }
 
     void PlaceHeaderStatus()
