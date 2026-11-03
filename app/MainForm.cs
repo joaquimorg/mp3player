@@ -49,6 +49,9 @@ public partial class MainForm : Form
         NameControls();
 
         Load += OnFormLoad;
+        // Closing the window during a send/conversion: cancel it so yt-dlp/ffmpeg are killed and the watch
+        // sees a clean abort (its previous slot stays intact).
+        FormClosing += delegate { if (musCts != null) { musCts.Cancel(); System.Threading.Thread.Sleep(1500); } };
         FormClosed += delegate { AppConfig.Save(); };
     }
 

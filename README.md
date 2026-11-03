@@ -1,6 +1,6 @@
 # Leitor de MP3 para o LilyGO T-Watch-2020 V1
 
-Firmware para o relógio **LilyGO T-Watch-2020 V1** que o transforma num leitor de MP3 com auscultadores/colunas Bluetooth. As músicas são guardadas na memória do relógio (4 espaços, ou "slots") e enviadas por Wi-Fi a partir de uma página web (telemóvel ou PC) ou do YouTube, com uma ferramenta para Windows.
+Firmware para o relógio **LilyGO T-Watch-2020 V1** que o transforma num leitor de MP3 com auscultadores/colunas Bluetooth. As músicas são guardadas na memória do relógio (4 espaços, ou "slots") e enviadas por Wi-Fi (ou por cabo USB) a partir de uma app para Windows, ou por Wi-Fi a partir de uma página web (telemóvel ou PC).
 
 ## Hardware
 
@@ -99,7 +99,19 @@ As credenciais ficam guardadas na memória do relógio (NVS) e sobrevivem a atua
 
 ## Adicionar músicas
 
-Primeiro entra em **Programação** no relógio e vê o IP no ecrã. O telemóvel/PC tem de estar na mesma rede Wi-Fi.
+Com a app Windows não precisas de fazer nada no relógio. Para a página web, entra primeiro em **Programação** no relógio e vê o IP no ecrã (o telemóvel/PC tem de estar na mesma rede Wi-Fi).
+
+### App Windows (recomendada)
+
+A pasta `app` tem a **app T-Watch MP3** para Windows 10/11, com janela e sem instaladores:
+
+1. Compila-a uma vez com `app\compilar.bat` (usa o compilador de C# que já vem no Windows). Fica `app\TWatchMP3.exe`; abre-se com duplo clique.
+2. **Separador Relógio**: liga o relógio ao PC por USB e carrega em *Atualizar* (a app encontra a porta COM sozinha). Escreve o nome e a palavra-passe da tua rede Wi-Fi (2,4 GHz) e carrega em *Enviar Wi-Fi para o relógio*: a palavra-passe viaja só pelo cabo e fica guardada no relógio. Também podes pôr o relógio em Programação ou Reprodução.
+3. **Separador Músicas**: mostra as 4 músicas e o espaço livre, e deixa apagar. Para enviar, cola um **link do YouTube** (ou escolhe um ficheiro de áudio: mp3, m4a, wav, flac...), escolhe o slot e carrega em *Enviar para o relógio*. A app converte para MP3 e, se não couber, recodifica a 64 kbps mono.
+4. O envio usa o **Wi-Fi se o relógio tiver uma rede configurada** (a app põe-no em Programação e encontra-o em `twatch.local`); senão, ou se marcares *Forçar USB*, usa o **cabo USB** (cerca de 38 KB/s). Durante o envio o ecrã do relógio mostra o progresso.
+5. **Separador Ferramentas**: descarrega (e atualiza) o `yt-dlp` e o `ffmpeg`, que a app usa para converter. Se o YouTube deixar de funcionar, atualiza o yt-dlp.
+
+Notas: a primeira vez que abres o `.exe` o Windows pode avisar que o programa não é conhecido (não está assinado). Se a porta COM estiver ocupada por outro programa (um monitor série, por exemplo), fecha-o. As definições da app (última porta e último IP) ficam em `app\twatch-config.txt`.
 
 ### Pela página web (telemóvel ou PC)
 
@@ -110,7 +122,7 @@ Primeiro entra em **Programação** no relógio e vê o IP no ecrã. O telemóve
 
 ### A partir do YouTube (Windows)
 
-A pasta `tools/pc` tem uma ferramenta que descarrega o áudio de um link do YouTube (ou converte um ficheiro de áudio), converte-o para MP3 e envia-o para o relógio. Instruções em [tools/pc/LEIAME.txt](tools/pc/LEIAME.txt). Em resumo: `obter-ferramentas.bat` (uma vez), depois `youtube-para-relogio.bat`.
+(Alternativa mais simples de usar: a app acima.) A pasta `tools/pc` tem uma ferramenta que descarrega o áudio de um link do YouTube (ou converte um ficheiro de áudio), converte-o para MP3 e envia-o para o relógio. Instruções em [tools/pc/LEIAME.txt](tools/pc/LEIAME.txt). Em resumo: `obter-ferramentas.bat` (uma vez), depois `youtube-para-relogio.bat`.
 
 ### Limites
 
@@ -148,10 +160,30 @@ Ambientes do `platformio.ini`:
 
 Código: `lib/slotlogic`, `lib/netlogic`, `lib/uilogic` (lógica pura, testável), `lib/audiocore` (anel de áudio e reamostragem), `src/` (player, Bluetooth, Wi-Fi/servidor, armazenamento, ecrã).
 
+### Protocolo série (USB)
+
+O firmware final responde a comandos de uma linha em 115200 baud (a app usa-os; podes testá-los com `tools\pc\serial-cmd.ps1`, que precisa de `-ExecutionPolicy Bypass`). Manda uma linha vazia antes do primeiro comando. As respostas começam por `OK` ou `ERRO`:
+
+| Comando | Resposta / efeito |
+|---|---|
+| `TWATCH?` | `OK TWATCH <versão> modo=<REPRODUCAO\|PROGRAMACAO> wifi=<rede\|-> ip=<ip\|-> livre=<bytes>` (a rede pode ter espaços: lê `wifi=` até ao último ` ip=`) |
+| `WIFI <rede><TAB><palavra-passe>` / `WIFI? ...` | grava o Wi-Fi / só valida |
+| `MODO PROG` / `MODO PLAY` | pede a mudança de modo (a resposta `OK` é de aceitação: vê `TWATCH?` para saber quando acabou) |
+| `LISTA` | `OK LISTA <livre> <tamanho>:<nome em hex> x4` |
+| `APAGAR <1-4>` | apaga um slot |
+| `BAUD 921600` / `BAUD 115200` | muda a velocidade (volta sozinha a 115200 ao fim de um envio, ou ao fim de 10 s sem comandos) |
+| `PUT <slot> <tamanho> <crc32 hex> <nome em hex>` | envia uma música em blocos `[seq][dados ≤4096][crc16 CCITT, byte mais alto primeiro]`, com resposta `K`/`R` por bloco e `OK <crc32>` no fim; `CANCELAR` aborta. Cliente de referência: `tools\pc\serial-put.ps1` |
+
+A descrição completa e as regras de recuperação estão em `docs/superpowers/specs/2026-11-03-pc-app-design.md` e em `lib/serproto/serproto.h`.
+
+### A app (código)
+
+`app\AppLogic.cs` tem a lógica pura (escolha Wi-Fi/USB, planos de recodificação, somas de verificação, validações) com testes de consola em `app\tests\LogicTests.cs`; `app\compilar.bat testes` corre só esses testes. `SerialLink.cs` (USB), `WatchApi.cs` (HTTP), `Converter.cs` e `Tools.cs` (yt-dlp/ffmpeg) e as janelas (`MainForm.cs`, `RelogioTab.cs`, `MusicasTab.cs`, `FerramentasTab.cs`) são C# 5. Para testes sem janela: `TWatchMP3.exe --autosend <ficheiro-ou-link> <slot> [usb]` faz o mesmo que o botão *Enviar* e escreve o registo em `app\twatch-autosend.log`.
+
 ### Testes
 
 ```
-pio test -e watch_test                 # test_audio, test_native, test_net, test_ui
+pio test -e watch_test                 # test_audio, test_native, test_net, test_serproto, test_ui
 pio test -e watch_test -f test_net     # só uma pasta
 ```
 

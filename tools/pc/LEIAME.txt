@@ -1,3 +1,4 @@
+NOVO: a app com janela em ..pp (appLEIAME.txt) faz o mesmo e mais (Wi-Fi por USB, envio por Wi-Fi ou USB). Estes .bat ficam como alternativa.
 YOUTUBE PARA O RELOGIO T-WATCH (ferramenta para Windows 10/11, sem instalar nada)
 1. Uma vez so: faz duplo clique em obter-ferramentas.bat (descarrega yt-dlp.exe de github.com/yt-dlp/yt-dlp e ffmpeg.exe de www.gyan.dev para esta pasta). Se o YouTube deixar de funcionar: obter-ferramentas.bat atualizar
 2. No relogio, toca em "Programar": o ecra mostra o endereco IP (o PC e o relogio tem de estar na mesma rede Wi-Fi).
