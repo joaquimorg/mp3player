@@ -211,6 +211,12 @@ void setup() {
   watch->begin();
   watch->tft->fillScreen(TFT_BLACK);
 
+  // The UI starts first so the splash screen appears at once (it lasts 5 s from here); the slow start-up
+  // work below (file system, mode) runs while it is showing. Nothing the UI touches before the splash ends
+  // needs that work.
+  ui::Host host{hostMode, hostBusy, hostRequest, hostIp, hostIpVersion, hostUploading};
+  ui::begin(watch, host);
+
   if (!storage::begin()) DBG_PRINTLN("LittleFS mount FAILED");
   else
     DBG_PRINTF("LittleFS used %u of %u bytes\n", (unsigned)LittleFS.usedBytes(), (unsigned)LittleFS.totalBytes());
@@ -232,8 +238,6 @@ void setup() {
   // the task just sleeps on its queue and core 1 is left to the MP3 decoder.
   xTaskCreatePinnedToCore(systemTask, "system", 10240, nullptr, 1, nullptr, 1);
 
-  ui::Host host{hostMode, hostBusy, hostRequest, hostIp, hostIpVersion, hostUploading};
-  ui::begin(watch, host);
   seriallink::begin({serialRequestMode, serialModeName, hostBusy, hostIp});
 }
 

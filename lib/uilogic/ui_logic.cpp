@@ -386,6 +386,14 @@ int etaSeconds(uint32_t received, uint32_t total, uint32_t elapsedMs) {
 
 namespace uilogic {
 
+bool splashActive(uint32_t start, uint32_t now, uint32_t durationMs) { return (uint32_t)(now - start) < durationMs; }
+
+int splashPercent(uint32_t start, uint32_t now, uint32_t durationMs) {
+  uint32_t elapsed = now - start;
+  if (durationMs == 0 || elapsed >= durationMs) return 100;
+  return (int)((uint64_t)elapsed * 100 / durationMs);
+}
+
 BtState btState(bool connected, bool pending, bool hasSaved, uint32_t sinceEnterMs) {
   if (connected) return BtState::Connected;
   if (pending) return BtState::Connecting;

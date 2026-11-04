@@ -197,6 +197,12 @@ class TouchTracker {
   int tx_ = 0, ty_ = 0;
 };
 
+// ---- Splash screen -----------------------------------------------------------
+// Shown for kSplashMs after every start-up (touches are ignored meanwhile).
+constexpr uint32_t kSplashMs = 5000;
+bool splashActive(uint32_t start, uint32_t now, uint32_t durationMs = kSplashMs);  // wrap-around safe
+int splashPercent(uint32_t start, uint32_t now, uint32_t durationMs = kSplashMs);  // 0..100, stays 100 after the end
+
 // ---- Transfer progress ------------------------------------------------------
 // "2,1 MB" (one decimal, comma); below 100 KB: "48 KB" (whole KB, rounded down).
 std::string formatMB(uint32_t bytes);

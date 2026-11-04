@@ -423,6 +423,27 @@ void test_touch_button_wake_clears_dim() {
   TEST_ASSERT_TRUE(t.update(31000, false, 0, 0) == TouchTracker::Event::Dim);
 }
 
+// ---- splash screen (5 s at start-up) -------------------------------------------
+void test_splash_timing() {
+  TEST_ASSERT_EQUAL_UINT32(5000, kSplashMs);
+  TEST_ASSERT_TRUE(splashActive(1000, 1000));
+  TEST_ASSERT_TRUE(splashActive(1000, 5999));
+  TEST_ASSERT_FALSE(splashActive(1000, 6000));   // exactly 5 s later: over
+  TEST_ASSERT_FALSE(splashActive(1000, 60000));
+  TEST_ASSERT_EQUAL_INT(0, splashPercent(1000, 1000));
+  TEST_ASSERT_EQUAL_INT(50, splashPercent(1000, 3500));
+  TEST_ASSERT_EQUAL_INT(99, splashPercent(1000, 5990));
+  TEST_ASSERT_EQUAL_INT(100, splashPercent(1000, 6000));
+  TEST_ASSERT_EQUAL_INT(100, splashPercent(1000, 90000));   // stays at 100 after the end
+}
+
+void test_splash_millis_wraparound() {
+  uint32_t start = 0xFFFFF000u;                 // 4096 ms before the counter wraps
+  TEST_ASSERT_TRUE(splashActive(start, 0x00000100u));       // 4352 ms elapsed
+  TEST_ASSERT_EQUAL_INT(87, splashPercent(start, 0x00000100u));
+  TEST_ASSERT_FALSE(splashActive(start, 0x00000400u));      // 5120 ms elapsed
+}
+
 void test_touch_hold_keeps_screen_on() {
   TouchTracker t(15000);
   t.update(0, true, 1, 1);
@@ -595,6 +616,7 @@ int runAll() {
   RUN_TEST(test_boot_mode);
   RUN_TEST(test_touch_tap_once_per_press);
   RUN_TEST(test_touch_sleep_and_wake_swallowed);
+  RUN_TEST(test_splash_timing); RUN_TEST(test_splash_millis_wraparound);
   RUN_TEST(test_touch_usb_dims_instead_of_sleeping); RUN_TEST(test_touch_usb_unplugged_while_dimmed_sleeps);
   RUN_TEST(test_touch_usb_plugged_while_timed_out); RUN_TEST(test_touch_usb_plugged_after_button_off_stays_off);
   RUN_TEST(test_touch_button_wake_clears_dim);

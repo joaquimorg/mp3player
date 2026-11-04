@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "bt.h"
+#include "config.h"
 #include "fonts/font_l.h"
 #include "fonts/font_m.h"
 #include "fonts/font_s.h"
@@ -824,6 +825,35 @@ bool refreshOverlay(uint32_t now) {
 // ---- frame ------------------------------------------------------------------
 uint32_t s_slotsGen = 0xFFFFFFFFu;  // storage::generation() when the slots were last read
 
+// ---- splash screen ------------------------------------------------------------
+bool s_splash = false;       // the start-up splash is showing
+uint32_t s_splashStart = 0;
+uint32_t s_splashDrawAt = 0;
+
+void drawSplash(uint32_t now) {
+  int pct = uilogic::splashPercent(s_splashStart, now);
+#ifdef UI_DEBUG
+  s_desc = String();
+#endif
+  g->fillRect(0, 0, uilogic::kScreenW, uilogic::kScreenH, C_BG);
+  // icon: two beamed music notes on a blue tile
+  g->fillRoundRect(76, 30, 88, 88, 20, C_BTN_HI);
+  g->fillRect(107, 56, 36, 8, C_TEXT);    // beam
+  g->fillRect(107, 56, 4, 42, C_TEXT);    // left stem
+  g->fillRect(139, 56, 4, 34, C_TEXT);    // right stem
+  g->fillCircle(101, 98, 9, C_TEXT);      // left head
+  g->fillCircle(133, 90, 9, C_TEXT);      // right head
+  queueText(Font::L, "T-Watch MP3", 120, 148, MC_DATUM, C_TEXT, C_BG, 232, "splash title");
+  queueText(Font::S, "Leitor de música", 120, 176, MC_DATUM, C_DIM, C_BG, 0, "splash subtitle");
+  g->drawRoundRect(40, 200, 160, 10, 4, C_DIM);
+  int fill = 156 * pct / 100;
+  if (fill > 0) g->fillRoundRect(42, 202, fill, 6, 3, C_BAR);
+  queueText(Font::S, String("v") + FW_VERSION, 120, 226, MC_DATUM, C_DIM, C_BG, 0, "splash version");
+  DESC("splash %d%%", pct);
+  flushText();
+  if (s_spr) s_spr->pushSprite(0, 0);
+}
+
 void loadSlots() {
   s_slotsGen = storage::generation();
   storage::hasFileAll(s_has);
@@ -1189,11 +1219,31 @@ void begin(TTGOClass* watch, const Host& host) {
   readTouch(x, y, now);  // detect an absent controller at boot (shows the hint)
   backlight(true);
   s_touch.setUsb(usbPowered(), now);
-  refresh(now);
+  s_splash = true;  // the normal screen appears after kSplashMs
+  s_splashStart = now;
+  s_splashDrawAt = now;
+  drawSplash(now);
 }
 
 void loop() {
   uint32_t now = millis();
+  if (s_splash) {  // start-up splash: draw it, ignore touches and the side button
+    if (uilogic::splashActive(s_splashStart, now)) {
+      if (now - s_splashDrawAt >= 100) {
+        s_splashDrawAt = now;
+        drawSplash(now);
+      }
+      s_touch.activity(now);  // the screen-off timer starts after the splash
+      return;
+    }
+    s_splash = false;
+    if (digitalRead(AXP202_INT) == LOW) {  // forget a side-button press made during the splash
+      s_w->power->readIRQ();
+      s_w->power->clearIRQ();
+    }
+    s_touch.activity(now);
+    s_dirty = true;
+  }
   pollButton(now);
   pollUsb(now);
 #ifdef UI_DEBUG

@@ -83,6 +83,7 @@ Em Reprodução há três ecrãs: **Leitor** (o principal), **Músicas** e **Men
 
 ### Botão lateral e ecrã
 
+- **Ao ligar** (ou quando o relógio reinicia) aparece durante **5 s** um ecrã de entrada com o ícone de música, o nome "T-Watch MP3", a versão e uma barra de progresso; os toques e o botão lateral são ignorados nesse tempo. Depois abre o Player (ou a Programação).
 - **A bateria**: o ecrã apaga-se sozinho ao fim de 15 s sem toques.
 - **Ligado por USB** (cabo ligado ao PC ou a um carregador): ao fim de 15 s o ecrã **só escurece** e não se apaga. Um toque volta ao brilho normal e carrega logo no botão que tocaste (não é preciso "acordar" primeiro). Se tirares o cabo com o ecrã escurecido, ele apaga-se; se ligares o cabo com o ecrã apagado pelo tempo, volta escurecido. O botão lateral continua a apagar o ecrã de vez, nos dois casos.
 - O **botão lateral** (clique curto) liga/desliga o ecrã.
