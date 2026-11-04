@@ -10,7 +10,7 @@ Copyright © 2026 joaquim.org. Licença [MIT](LICENSE).
 
 | Ecrã de entrada | Leitor | Músicas | Menu |
 |---|---|---|---|
-| ![Ecrã de entrada do relógio](docs/images/relogio-splash.png) | ![Leitor a tocar, com os auscultadores ligados](docs/images/relogio-player.png) | ![Lista de músicas](docs/images/relogio-musicas.png) | ![Menu](docs/images/relogio-menu.png) |
+| ![Ecrã de entrada do relógio](docs/images/relogio-splash.png) | ![Leitor a tocar, com o estado do Bluetooth no topo](docs/images/relogio-player.png) | ![Lista de músicas](docs/images/relogio-musicas.png) | ![Menu](docs/images/relogio-menu.png) |
 
 **A app Windows**
 
@@ -223,6 +223,10 @@ Os testes de áudio tocam uma faixa real, por isso precisam de pelo menos uma m�
 > ```
 
 Ao testar à mão, ouve se há **cliques** quando mudas o volume ou o modo de repetição durante a reprodução: essas alterações são gravadas na NVS (escrita na flash) e podem interromper brevemente o áudio.
+
+### Biblioteca do ecrã (patch automático)
+
+O buffer do ecrã (240x240, na PSRAM) é desenhado com a biblioteca TFT_eSPI. O `TFT_eSprite::fillRect` dela deixava uma coluna preta de 1 pixel à esquerda de retângulos que começam numa coluna ímpar (uma risca fina antes de algumas palavras e ícones). O script `tools\patch_tft_espi.py`, ligado em `platformio.ini` (`extra_scripts`), corrige-o automaticamente em cada compilação, na cópia da biblioteca descarregada pelo PlatformIO; não precisas de fazer nada.
 
 ### Capturas do ecrã do relógio
 
