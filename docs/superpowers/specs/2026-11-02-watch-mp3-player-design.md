@@ -65,3 +65,6 @@ Uma pasta portátil, sem Python nem instalador, para Windows 11:
 - Verificar no log serial: arranque, mudança de modo, ligação Wi-Fi, upload, listagem e gravação em flash.
 - Testar o upload com `curl` e pelo browser.
 - O áudio e o emparelhamento só podem ser confirmados com o utilizador, com uns auscultadores ou uma coluna Bluetooth.
+
+---
+Copyright © 2026 joaquim.org. Licença MIT (ver [LICENSE](../../../LICENSE)).

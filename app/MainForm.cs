@@ -51,7 +51,7 @@ public partial class MainForm : Form
         // Fixed size: the layout is designed for it (no resizing or maximising).
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
-        ClientSize = new Size(840, 760);
+        ClientSize = new Size(840, 790);
         StartPosition = FormStartPosition.CenterScreen;
         AllowDrop = true;
 
@@ -60,6 +60,14 @@ public partial class MainForm : Form
         // The pages first (docked Fill), then the bars on top of them.
         content = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Bg };
         Controls.Add(content);
+
+        // Footer: copyright and license.
+        Panel footer = new Panel { Dock = DockStyle.Bottom, Height = 30, BackColor = Theme.Bg };
+        Label copy = Theme.Label("T-Watch MP3  ·  © 2026 joaquim.org  ·  Licença MIT", Theme.Small, Theme.Muted);
+        copy.Location = new Point(24, 6);
+        footer.Controls.Add(copy);
+        Controls.Add(footer);
+
         pageMusic = NewPage();
         pageSettings = NewPage();
         content.Controls.Add(pageMusic);

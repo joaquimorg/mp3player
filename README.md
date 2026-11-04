@@ -2,6 +2,24 @@
 
 Firmware para o relógio **LilyGO T-Watch-2020 V1** que o transforma num leitor de MP3 com auscultadores/colunas Bluetooth. As músicas são guardadas na memória do relógio (4 espaços, ou "slots") e enviadas por Wi-Fi (ou por cabo USB) a partir de uma app para Windows, ou por Wi-Fi a partir de uma página web (telemóvel ou PC).
 
+Copyright © 2026 joaquim.org. Licença [MIT](LICENSE).
+
+## Capturas de ecrã
+
+**O relógio**
+
+| Ecrã de entrada | Leitor | Músicas | Menu |
+|---|---|---|---|
+| ![Ecrã de entrada do relógio](docs/images/relogio-splash.png) | ![Leitor a tocar, com os auscultadores ligados](docs/images/relogio-player.png) | ![Lista de músicas](docs/images/relogio-musicas.png) | ![Menu](docs/images/relogio-menu.png) |
+
+**A app Windows**
+
+| Músicas | Definições |
+|---|---|
+| ![App Windows: Músicas](docs/images/app-musicas.png) | ![App Windows: Definições](docs/images/app-definicoes.png) |
+
+(As capturas do relógio foram tiradas com `tools\watch-shot.ps1`, ver mais abaixo; o nome da rede Wi-Fi foi escondido na captura das Definições.)
+
 ## Hardware
 
 - LilyGO T-Watch-2020 V1 (ESP32 com 16 MB de flash e 8 MB de PSRAM, ecrã tátil de 240x240, chip de energia AXP202).
@@ -205,3 +223,25 @@ Os testes de áudio tocam uma faixa real, por isso precisam de pelo menos uma m�
 > ```
 
 Ao testar à mão, ouve se há **cliques** quando mudas o volume ou o modo de repetição durante a reprodução: essas alterações são gravadas na NVS (escrita na flash) e podem interromper brevemente o áudio.
+
+### Capturas do ecrã do relógio
+
+Com o firmware de depuração (`watch_uidebug`) ligado, `tools\watch-shot.ps1` grava o que o ecrã mostra num PNG (a captura demora cerca de 20 s; o relógio fica ocupado nesse tempo):
+
+```
+powershell -ExecutionPolicy Bypass -File tools\watch-shot.ps1 -Out docs\images\relogio-player.png
+powershell -ExecutionPolicy Bypass -File tools\watch-shot.ps1 -Out docs\images\relogio-splash.png -Reset -WaitMs 3200
+powershell -ExecutionPolicy Bypass -File tools\watch-shot.ps1 -Out docs\images\relogio-musicas.png -Command "tap 60 206"
+```
+
+## Licença
+
+Copyright © 2026 joaquim.org
+
+Este projeto é distribuído sob a **licença MIT**: vê o ficheiro [LICENSE](LICENSE). Podes usar, copiar, modificar e distribuir, mantendo o aviso de copyright e a licença.
+
+**Componentes de terceiros** (não fazem parte do código deste projeto e têm as suas próprias licenças; confirma-as antes de distribuíres binários):
+
+- Bibliotecas do firmware, obtidas pelo PlatformIO: [TTGO_TWatch_Library](https://github.com/Xinyuan-LilyGO/TTGO_TWatch_Library) (inclui o TFT_eSPI), [ESP32-A2DP](https://github.com/pschatzmann/ESP32-A2DP) e [arduino-libhelix](https://github.com/pschatzmann/arduino-libhelix) (descodificador MP3 Helix, da RealNetworks, com licença própria).
+- Fontes do ecrã do relógio: geradas a partir de **Droid Sans** (licença Apache 2.0), em `src/fonts/`.
+- Programas auxiliares da app Windows, **não incluídos** neste repositório: a app descarrega-os dos sites oficiais quando precisas ([yt-dlp](https://github.com/yt-dlp/yt-dlp), licença Unlicense, e [ffmpeg](https://ffmpeg.org/), construções de gyan.dev com licença GPL/LGPL). Respeita os termos do YouTube e os direitos de autor das músicas que converteres.

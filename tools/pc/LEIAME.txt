@@ -6,3 +6,5 @@ YOUTUBE PARA O RELOGIO T-WATCH (ferramenta para Windows 10/11, sem instalar nada
 4. Aguarda: o envio demora cerca de 1 minuto por cada 3 MB. Se o Wi-Fi do relogio falhar a meio, o slot antigo mantem-se e a ferramenta repete o envio sozinha (ate 3 tentativas). O MP3 fica a 44,1 kHz, 112 kbps. Nao ha limite fixo por musica: conta so o espaco livre do relogio (cerca de 12 MB no total, partilhados pelos 4 slots, cerca de 14 minutos a 112 kbps). Se nao couber, a ferramenta tenta 64 kbps mono (metade do tamanho); se mesmo assim nao couber, diz quanto espaco falta e oferece apagar um slot.
 5. Se o slot ja tiver musica e nao houver espaco, a ferramenta oferece apagar o slot; ou manualmente: curl -X DELETE http://IP/api/slot/N
 6. No relogio, toca em "Reproducao" para ouvir. Uso por linha de comandos: youtube-para-relogio.bat "link-ou-ficheiro" slot ip   (o ultimo IP fica em ultimo-ip.txt)
+
+Copyright (c) 2026 joaquim.org. Licenca MIT (ver ..\..\LICENSE).

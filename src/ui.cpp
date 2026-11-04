@@ -848,7 +848,7 @@ void drawSplash(uint32_t now) {
   g->drawRoundRect(40, 200, 160, 10, 4, C_DIM);
   int fill = 156 * pct / 100;
   if (fill > 0) g->fillRoundRect(42, 202, fill, 6, 3, C_BAR);
-  queueText(Font::S, String("v") + FW_VERSION, 120, 226, MC_DATUM, C_DIM, C_BG, 0, "splash version");
+  queueText(Font::S, String("v") + FW_VERSION + "  ·  © 2026 joaquim.org", 120, 224, MC_DATUM, C_DIM, C_BG, 232, "splash version");
   DESC("splash %d%%", pct);
   flushText();
   if (s_spr) s_spr->pushSprite(0, 0);
@@ -1122,6 +1122,27 @@ void debugLine(const char* line) {
       s_usbForce = a == "1" ? 1 : a == "0" ? 0 : -1;
       s_usbPollAt = 0;
       DBG_PRINTF("[ui] usb override %d\n", s_usbForce);
+    } else if (c == "shot") {  // dump the 240x240 frame as hex lines "SHOT <offset> <hex>" (tools/watch-shot.ps1)
+      if (s_spr) {
+        const size_t n = (size_t)uilogic::kScreenW * uilogic::kScreenH * 2;
+        uint8_t* snap = (uint8_t*)heap_caps_malloc(n, MALLOC_CAP_SPIRAM);
+        if (snap) {
+          memcpy(snap, s_spr->frameBuffer(1), n);  // RGB565, high byte first
+          static const char* hx = "0123456789abcdef";
+          char line[16 + 128 + 2];
+          for (size_t off = 0; off < n; off += 64) {
+            int k = snprintf(line, sizeof line, "SHOT %u ", (unsigned)off);
+            for (size_t i = 0; i < 64 && off + i < n; ++i) {
+              line[k++] = hx[snap[off + i] >> 4];
+              line[k++] = hx[snap[off + i] & 15];
+            }
+            line[k++] = '\n';
+            Serial.write((const uint8_t*)line, (size_t)k);
+          }
+          Serial.write((const uint8_t*)"SHOT END\n", 9);
+          heap_caps_free(snap);
+        }
+      }
     } else if (c == "heap") {
       DBG_PRINTF("[ui] heap free %u internal %u psram %u\n", (unsigned)ESP.getFreeHeap(),
                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
@@ -1234,6 +1255,9 @@ void loop() {
         drawSplash(now);
       }
       s_touch.activity(now);  // the screen-off timer starts after the splash
+#ifdef UI_DEBUG
+      debugPoll();
+#endif
       return;
     }
     s_splash = false;

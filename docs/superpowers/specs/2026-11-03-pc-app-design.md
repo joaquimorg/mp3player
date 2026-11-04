@@ -73,3 +73,6 @@ Em modo Programação (Wi-Fi ligado), o relógio anuncia `twatch.local` (serviç
 - Protocolo série no relógio: testes unitários no relógio para o analisador de comandos e o enquadramento de blocos/CRC (lib pura), e verificação real com a app ou com uma ferramenta de linha de comandos (envio de 1 MB e 4,4 MB; corte do cabo a meio com o slot anterior intacto; bloco corrompido repetido).
 - App: compilar sem avisos; lógica pura (decisão de recodificar, cálculo de espaço, nomes seguros) em testes de consola executáveis sem a janela; verificação ponta a ponta com o relógio real (Wi-Fi por série, listar, enviar ficheiro, enviar YouTube, apagar).
 - Verificação visual da janela pelo utilizador.
+
+---
+Copyright © 2026 joaquim.org. Licença MIT (ver [LICENSE](../../../LICENSE)).

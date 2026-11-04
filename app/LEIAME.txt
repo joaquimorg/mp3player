@@ -5,3 +5,5 @@ APP T-WATCH MP3 (Windows 10/11, sem instalar nada)
 3. Musicas (ecra inicial): cola um link do YouTube ou arrasta/escolhe um ficheiro de audio, escolhe o lugar e carrega em "Adicionar ao relogio". Usa o Wi-Fi se o relogio tiver rede guardada, senao o cabo USB.
 4. Definicoes: estado do relogio, Wi-Fi do relogio (nome e palavra-passe) e, em "opcoes avancadas", os programas auxiliares (yt-dlp e ffmpeg, a app instala-os quando precisa).
 Mais detalhes em ..\README.md. O .exe nao esta assinado: o Windows pode avisar na primeira vez.
+
+Copyright (c) 2026 joaquim.org. Licenca MIT (ver ..\LICENSE).

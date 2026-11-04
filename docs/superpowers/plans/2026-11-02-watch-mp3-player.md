@@ -207,3 +207,6 @@ mp3player/
 - [ ] **Step 1: Clean build and native tests.** Run `pio test -e native` (all PASS) and `pio run -e watch` (builds with no errors); record flash/RAM usage.
 - [ ] **Step 2: Soak test with the user:** fill all 4 slots (two from YouTube, two from the page), play in `AllSlots` mode for 30 minutes; expected no reset, no audio dropouts longer than 1 s, battery level logged.
 - [ ] **Step 3: Review Focus checklist:** re-run each of the five Review Focus scenarios and note the result.
+
+---
+Copyright © 2026 joaquim.org. Licença MIT (ver [LICENSE](../../../LICENSE)).

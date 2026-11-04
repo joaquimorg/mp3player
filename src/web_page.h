@@ -30,6 +30,7 @@ progress{width:100%;height:.7rem;margin-top:.6rem;display:none}
 <h1>Relógio MP3</h1>
 <p class="free" id="free">A carregar…</p>
 <div id="slots"></div>
+<p style="margin-top:1.2rem;font-size:.8rem;opacity:.6;text-align:center">© 2026 joaquim.org</p>
 </main>
 <script>
 var OVH=16384,FREE=0;
@@ -103,7 +104,9 @@ button{margin-top:1.2rem;width:100%;font-size:1.05rem;padding:.7rem;border:0;bor
 <label for="p">Palavra-passe</label>
 <input id="p" name="pass" type="password" maxlength="63" autocomplete="off">
 <button type="submit">Guardar e reiniciar</button>
-</form></main></body></html>)HTML";
+</form>
+<p style="margin-top:1.2rem;font-size:.8rem;opacity:.6;text-align:center">© 2026 joaquim.org</p>
+</main></body></html>)HTML";
 
 static const char kSetupSavedPage[] PROGMEM = R"HTML(<!DOCTYPE html>
 <html lang="pt-PT"><head><meta charset="utf-8">
